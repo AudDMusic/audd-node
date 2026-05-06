@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>AudD browser longpoll demo</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2em auto; padding: 0 1em; }
+      pre { background: #f5f5f5; padding: 1em; border-radius: 4px; overflow-x: auto; }
+      label { display: block; margin: 1em 0 0.25em; font-weight: 600; }
+      input { width: 100%; box-sizing: border-box; padding: 0.5em; font-family: monospace; }
+      button { margin-top: 1em; padding: 0.5em 1em; font-size: 1em; cursor: pointer; }
+      .events { margin-top: 1em; }
+      .event { background: #eef; padding: 0.5em; margin: 0.5em 0; border-left: 3px solid #66c; }
+    </style>
+  </head>
+  <body>
+    <h1>AudD browser longpoll demo</h1>
+
+    <p>
+      Demonstrates the tokenless <code>LongpollConsumer</code> from
+      <code>audd/longpoll</code> — browser-safe, carries no API token. Your
+      server should derive the category server-side via
+      <code>audd.streams.deriveLongpollCategory(radioId)</code> and ship it
+      to the browser.
+    </p>
+
+    <label for="category">Longpoll category (9 hex chars):</label>
+    <input
+      id="category"
+      type="text"
+      placeholder="e.g. 088719f57"
+      pattern="[0-9a-f]{9}"
+    />
+
+    <button id="start" type="button">Start longpoll</button>
+    <button id="stop" type="button" disabled>Stop</button>
+
+    <div class="events" id="events"></div>
+
+    <h2>Boilerplate (paste into your bundler)</h2>
+    <pre><code>// import via your bundler so this stays browser-safe (no API token):
+import { LongpollConsumer } from "audd/longpoll";
+
+const consumer = new LongpollConsumer("088719f57");
+for await (const event of consumer.iterate({ timeout: 30 })) {
+  console.log(event);
+}</code></pre>
+
+    <p>
+      In an actual app you'd build this with esbuild/vite/rollup. This page
+      is a static reference — it doesn't import the SDK to keep the demo
+      runnable from <code>file://</code>.
+    </p>
+  </body>
+</html>
