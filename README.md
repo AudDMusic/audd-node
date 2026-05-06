@@ -1,0 +1,332 @@
+# audd
+
+[![CI](https://github.com/AudDMusic/audd-node/actions/workflows/ci.yml/badge.svg)](https://github.com/AudDMusic/audd-node/actions/workflows/ci.yml)
+[![Contract](https://github.com/AudDMusic/audd-node/actions/workflows/contract.yml/badge.svg)](https://github.com/AudDMusic/audd-node/actions/workflows/contract.yml)
+[![npm](https://img.shields.io/npm/v/@audd/sdk.svg)](https://www.npmjs.com/package/@audd/sdk)
+
+Official TypeScript / Node.js SDK for [AudD](https://audd.io) — music recognition from a short audio clip, a long audio file, or a live stream.
+
+The [API itself](https://docs.audd.io) is so simple that it can be easily used even without an SDK.
+
+## Quickstart
+
+```bash
+npm install @audd/sdk
+```
+
+Get your API token at [dashboard.audd.io](https://dashboard.audd.io).
+
+Recognize from a URL:
+
+```ts
+import { AudD } from "@audd/sdk";
+
+const audd = new AudD("test");
+const song = await audd.recognize("https://audd.tech/example.mp3");
+if (song) {
+  console.log(`${song.artist} — ${song.title}`);
+}
+```
+
+Recognize a local file (Node):
+
+```ts
+import { AudD } from "@audd/sdk";
+import { readFile } from "node:fs/promises";
+
+const audd = new AudD("test");
+
+// Pass a path…
+const song = await audd.recognize("./clip.mp3");
+
+// …or pass bytes directly.
+const bytes = await readFile("./clip.mp3");
+const song2 = await audd.recognize(bytes);
+```
+
+A `null` return means the server completed the request successfully but
+found no match — distinct from an error, which throws.
+
+## Authentication
+
+Pass the token literally:
+
+```ts
+const audd = new AudD("d29ebb...");
+```
+
+Or set `AUDD_API_TOKEN` in the environment and construct without
+arguments:
+
+```ts
+const audd = new AudD();
+```
+
+For long-running services that rotate credentials, swap the token at
+runtime without aborting in-flight requests:
+
+```ts
+audd.setApiToken(nextToken);
+```
+
+## What you get back
+
+By default, `recognize` resolves to a typed `RecognitionResult` with core
+tags plus AudD's universal song link — no metadata-block opt-in needed:
+
+```ts
+const song = await audd.recognize("https://audd.tech/example.mp3");
+if (!song) return;
+
+// Core fields
+console.log(song.artist, song.title, song.album);
+console.log(song.releaseDate, song.label, song.timecode);
+
+// AudD's universal song page — links into every provider
+console.log(song.songLink);
+
+// Helpers — driven off songLink, work without any `return` opt-in
+console.log(song.thumbnailUrl);             // cover-art image, or null
+console.log(song.streamingUrl("spotify"));  // direct or lis.tn redirect
+console.log(song.streamingUrls());          // map of provider -> URL
+```
+
+If you need provider-specific metadata blocks, opt in per call. Request
+only what you need — each provider you ask for adds latency:
+
+```ts
+const song = await audd.recognize("https://audd.tech/example.mp3", {
+  return: ["apple_music", "spotify"],
+});
+console.log(song?.appleMusic?.url);   // direct Apple Music link
+console.log(song?.spotify?.uri);      // spotify:track:...
+console.log(song?.previewUrl());      // first preview across requested providers, or null
+```
+
+Valid `return` values: `apple_music`, `spotify`, `deezer`, `napster`,
+`musicbrainz`. Blocks are `undefined` when not requested.
+
+`streamingUrl(provider)` prefers the direct provider URL when you
+requested that block via `return`, then falls back to the lis.tn redirect
+when `songLink` is on `lis.tn`. YouTube has only the redirect path.
+
+## Reading additional metadata
+
+Every model carries an `extras` map with any server-side fields outside
+the typed surface, plus a `rawResponse` of the full unparsed JSON. Use
+`extras` to read undocumented or beta fields:
+
+```ts
+console.log(song.extras);       // any non-typed top-level fields
+console.log(song.rawResponse);  // the whole result object as the server returned it
+```
+
+## Long files (enterprise)
+
+`recognizeEnterprise` accepts files up to several hours and returns a
+flat array of matches:
+
+```ts
+const matches = await audd.recognizeEnterprise("./show.mp3", { limit: 20 });
+
+for (const m of matches) {
+  console.log(m.timecode, m.artist, m.title);
+}
+```
+
+`EnterpriseMatch` carries the same core tags plus `score`, `startOffset`,
+`endOffset`, `isrc`, `upc`. Access to `isrc`, `upc`, and `score` requires
+a Startup plan or higher — [contact us](mailto:api@audd.io) for enterprise
+features.
+
+The default per-call timeout is **1 hour** for this endpoint (60s for
+standard recognition); override with `timeoutMs`.
+
+## Errors
+
+Every server error is a typed exception. Use `instanceof` to branch:
+
+```ts
+import {
+  AudD,
+  AudDAPIError,
+  AudDAuthenticationError,
+  AudDQuotaError,
+  AudDSubscriptionError,
+  AudDInvalidAudioError,
+  AudDRateLimitError,
+  AudDConnectionError,
+} from "@audd/sdk";
+
+try {
+  await audd.recognize("./clip.mp3");
+} catch (err) {
+  if (err instanceof AudDAuthenticationError) {
+    // 900 / 901 / 903 — token rejected
+  } else if (err instanceof AudDQuotaError) {
+    // 902 — out of credits
+  } else if (err instanceof AudDSubscriptionError) {
+    // 904 / 905 — endpoint not enabled on this token
+  } else if (err instanceof AudDInvalidAudioError) {
+    // 300 / 400 / 500 — file unreadable / too short / unsupported
+  } else if (err instanceof AudDRateLimitError) {
+    // 611 — too many requests, slow down
+  } else if (err instanceof AudDConnectionError) {
+    // network failure or aborted request
+  } else if (err instanceof AudDAPIError) {
+    console.error(err.errorCode, err.serverMessage, err.requestId);
+  } else {
+    throw err;
+  }
+}
+```
+
+Every `AudDAPIError` exposes `errorCode`, `serverMessage`, `httpStatus`,
+`requestId`, `requestedParams`, `requestMethod`, `brandedMessage`, and
+`rawResponse`. The full hierarchy lives in
+[`src/errors.ts`](src/errors.ts).
+
+## Configuration
+
+```ts
+import { AudD } from "@audd/sdk";
+
+const audd = new AudD("...token...", {
+  maxRetries: 3,        // retry budget per call
+  backoffFactorMs: 500, // initial backoff (ms), jittered, exponential
+  fetch: customFetch,   // bring your own fetch (proxy, mTLS, observability)
+  onEvent: (e) => {     // request/response/exception inspection hook
+    console.log(e.method, e.httpStatus, e.elapsedMs, e.requestId);
+  },
+});
+```
+
+Per-call cancellation via `AbortSignal`, including for multi-hour
+enterprise calls:
+
+```ts
+const controller = new AbortController();
+setTimeout(() => controller.abort(), 30_000);
+
+const matches = await audd.recognizeEnterprise("./show.mp3", {
+  signal: controller.signal,
+  limit: 50,
+});
+```
+
+The constructor also accepts an options-only form
+(`new AudD({ apiToken, ... })`) if you'd rather pass everything as one
+object — equivalent to the two-argument form above.
+
+A single client instance handles concurrent requests fine; spin up one
+per process, not one per call.
+
+## Streams
+
+Real-time recognition over a live audio stream. Once a stream is
+registered, AudD POSTs each match to your callback URL — or if you
+can't host one, drains events to a longpoll endpoint instead.
+
+```ts
+await audd.streams.setCallbackUrl("https://your.app/audd-callback", {
+  returnMetadata: ["apple_music", "musicbrainz"],
+});
+
+await audd.streams.add({
+  url: "https://stream.example/live.m3u8",
+  radioId: 12345,
+});
+
+const streams = await audd.streams.list();
+```
+
+Parse incoming callback POSTs into a typed payload:
+
+```ts
+const payload = audd.streams.parseCallback(reqBodyJson);
+if (payload.isResult) {
+  for (const r of payload.result!.results) {
+    console.log(r.artist, r.title, r.score);
+  }
+} else if (payload.isNotification) {
+  console.log(payload.notification!.notificationCode,
+              payload.notification!.notificationMessage);
+}
+```
+
+### Receiving events without a callback URL (longpoll)
+
+Useful when you can't expose a public HTTPS receiver. Before the first
+event, the SDK runs a one-time `getCallbackUrl` preflight — AudD
+silently discards events for accounts without any callback URL set, so
+this catches the trap early. Pass `skipCallbackCheck: true` to opt out.
+
+```ts
+for await (const event of audd.streams.longpoll(category, { timeout: 30 })) {
+  console.log(event);
+}
+```
+
+`category` is a 9-character string derived locally from your token and
+`radioId`:
+
+```ts
+const category = audd.streams.deriveLongpollCategory(12345);
+```
+
+### Browser / widget consumers
+
+The `audd/longpoll` sub-entry exports a tokenless `LongpollConsumer` for
+front-end use. It carries no api_token — your server derives the
+category and ships it to the browser. Bundlers tree-shake the auth
+client out of the resulting bundle.
+
+```ts
+import { LongpollConsumer } from "@audd/sdk/longpoll";
+
+const consumer = new LongpollConsumer("abc123def");
+for await (const event of consumer.iterate({ timeout: 30 })) {
+  console.log(event);
+}
+```
+
+## Custom catalog (advanced — not for music recognition)
+
+> The custom-catalog endpoint is **not** how you submit audio for
+> recognition. For recognition, use `recognize()` or
+> `recognizeEnterprise()`. This endpoint adds songs to your private
+> fingerprint database. Requires special access — contact api@audd.io.
+
+```ts
+await audd.customCatalog.add({
+  audioId: 42,
+  source: "https://example.com/my-track.mp3",
+});
+```
+
+A raw-request escape hatch is available under `audd.advanced.rawRequest`
+for endpoints not yet wrapped on this SDK.
+
+## Resource cleanup
+
+Both `AudD` and `LongpollConsumer` implement `Symbol.asyncDispose` for
+[explicit resource management](https://github.com/tc39/proposal-explicit-resource-management):
+
+```ts
+{
+  await using audd = new AudD("...");
+  await audd.recognize("...");
+} // close() called automatically here
+```
+
+Older runtimes can call `close()` manually.
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
+
+## Support
+
+- Documentation: https://docs.audd.io
+- Tokens: https://dashboard.audd.io
+- Email: api@audd.io
