@@ -1,0 +1,65 @@
+{
+  "name": "@audd/sdk",
+  "version": "1.4.8",
+  "description": "Official TypeScript SDK for the AudD music recognition API.",
+  "license": "MIT",
+  "author": "AudD <api@audd.io>",
+  "repository": "github:AudDMusic/audd-node",
+  "homepage": "https://audd.io",
+  "bugs": "https://github.com/AudDMusic/audd-node/issues",
+  "keywords": [
+    "audd",
+    "music-recognition",
+    "audio",
+    "fingerprinting"
+  ],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./longpoll": {
+      "types": "./dist/longpoll.d.ts",
+      "import": "./dist/longpoll.js",
+      "require": "./dist/longpoll.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "lint": "eslint src test",
+    "typecheck": "tsc --noEmit",
+    "ci": "npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "eslint": "^9.0.0",
+    "msw": "^2.4.0",
+    "prettier": "^3.3.0",
+    "tsup": "^8.2.0",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
