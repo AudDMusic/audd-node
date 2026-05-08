@@ -1,0 +1,17 @@
+{
+  "name": "audd-example-scan-and-rename",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Walk a folder, recognize each audio file, retag and rename to 'Artist - Title.ext'.",
+  "scripts": {
+    "start": "tsx index.ts"
+  },
+  "dependencies": {
+    "node-id3": "^0.2.6",
+    "p-limit": "^5.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0"
+  }
+}
