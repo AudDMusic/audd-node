@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'audd-node/v*'
+      - 'v*'
+permissions:
+  contents: read
+  id-token: write   # for npm trusted publishing OIDC + Sigstore provenance
+  packages: write   # for GitHub Packages npm push
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"   # ships npm >= 11.5.1, required for trusted publishing
+          cache: npm
+          registry-url: "https://registry.npmjs.org"
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
+      - name: Publish to npmjs.com
+        run: npm publish --access public
+      - name: Publish to GitHub Packages (scoped @auddmusic/audd)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # GitHub Packages npm requires the package name to be `@<owner>/<name>`,
+        # lowercase owner. We publish a renamed copy of the same artifact to the
+        # AudDMusic org's package list. The canonical install path is still
+        # `npm install audd` from npmjs.com.
+        run: |
+          set -e
+          cp package.json package.json.npmjs
+          node -e "const p=require('./package.json'); p.name='@auddmusic/audd'; require('fs').writeFileSync('./package.json', JSON.stringify(p, null, 2));"
+          {
+            echo "@auddmusic:registry=https://npm.pkg.github.com"
+            echo "//npm.pkg.github.com/:_authToken=\${NODE_AUTH_TOKEN}"
+          } > .npmrc
+          npm publish --access public
+          mv package.json.npmjs package.json
+          rm .npmrc
