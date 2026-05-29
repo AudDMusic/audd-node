@@ -69,7 +69,7 @@ function lisTnStreamingUrl(songLink: string | undefined, provider: string): stri
 
 export interface RecognitionResult {
   /** Always present on a match. */
-  timecode: string;
+  timecode?: string | undefined;
   /** Set on custom-catalog matches. */
   audioId?: number | undefined;
   artist?: string | undefined;
@@ -187,9 +187,6 @@ const RECOGNITION_KEYS = [
 export function parseRecognitionResult(raw: unknown): RecognitionResult {
   const r = requireObject(raw, "RecognitionResult");
   const timecode = asString(r.timecode);
-  if (timecode === undefined) {
-    throw new TypeError("RecognitionResult: timecode missing or not string");
-  }
   const audioId = asNumber(r.audio_id);
   const artist = asString(r.artist);
   const title = asString(r.title);
@@ -254,8 +251,8 @@ export function parseRecognitionResult(raw: unknown): RecognitionResult {
 }
 
 export interface EnterpriseMatch {
-  score: number;
-  timecode: string;
+  score?: number | undefined;
+  timecode?: string | undefined;
   artist?: string | undefined;
   title?: string | undefined;
   album?: string | undefined;
@@ -294,8 +291,6 @@ export function parseEnterpriseMatch(raw: unknown): EnterpriseMatch {
   const r = requireObject(raw, "EnterpriseMatch");
   const score = asNumber(r.score);
   const timecode = asString(r.timecode);
-  if (score === undefined) throw new TypeError("EnterpriseMatch: score not number");
-  if (timecode === undefined) throw new TypeError("EnterpriseMatch: timecode not string");
   const songLink = asString(r.song_link);
   return {
     score,
@@ -342,7 +337,7 @@ export function parseEnterpriseMatch(raw: unknown): EnterpriseMatch {
 
 export interface EnterpriseChunkResult {
   songs: EnterpriseMatch[];
-  offset: string;
+  offset?: string | undefined;
   extras: Record<string, unknown>;
   rawResponse: Record<string, unknown>;
 }
@@ -351,12 +346,8 @@ const ENTERPRISE_CHUNK_KEYS = ["songs", "offset"] as const;
 
 export function parseEnterpriseChunkResult(raw: unknown): EnterpriseChunkResult {
   const r = requireObject(raw, "EnterpriseChunkResult");
-  const songsRaw = r.songs;
-  if (!Array.isArray(songsRaw)) {
-    throw new TypeError("EnterpriseChunkResult: songs not array");
-  }
+  const songsRaw = Array.isArray(r.songs) ? r.songs : [];
   const offset = asString(r.offset);
-  if (offset === undefined) throw new TypeError("EnterpriseChunkResult: offset not string");
   return {
     songs: songsRaw.map(parseEnterpriseMatch),
     offset,
@@ -366,9 +357,9 @@ export function parseEnterpriseChunkResult(raw: unknown): EnterpriseChunkResult 
 }
 
 export interface Stream {
-  radioId: number;
-  url: string;
-  streamRunning: boolean;
+  radioId?: number | undefined;
+  url?: string | undefined;
+  streamRunning?: boolean | undefined;
   longpollCategory?: string | undefined;
   extras: Record<string, unknown>;
   rawResponse: Record<string, unknown>;
@@ -381,9 +372,6 @@ export function parseStream(raw: unknown): Stream {
   const radioId = asNumber(r.radio_id);
   const url = asString(r.url);
   const streamRunning = asBoolean(r.stream_running);
-  if (radioId === undefined) throw new TypeError("Stream: radio_id not number");
-  if (url === undefined) throw new TypeError("Stream: url not string");
-  if (streamRunning === undefined) throw new TypeError("Stream: stream_running not boolean");
   return {
     radioId,
     url,
@@ -405,9 +393,9 @@ export function parseStream(raw: unknown): Stream {
  * same track.
  */
 export interface StreamCallbackSong {
-  artist: string;
-  title: string;
-  score: number;
+  artist?: string | undefined;
+  title?: string | undefined;
+  score?: number | undefined;
   album?: string | undefined;
   releaseDate?: string | undefined;
   label?: string | undefined;
@@ -444,9 +432,6 @@ function parseStreamCallbackSong(raw: unknown): StreamCallbackSong {
   const artist = asString(r.artist);
   const title = asString(r.title);
   const score = asNumber(r.score);
-  if (artist === undefined) throw new TypeError("StreamCallbackSong: artist not string");
-  if (title === undefined) throw new TypeError("StreamCallbackSong: title not string");
-  if (score === undefined) throw new TypeError("StreamCallbackSong: score not number");
   const musicbrainz = Array.isArray(r.musicbrainz)
     ? (r.musicbrainz.filter((x): x is Record<string, unknown> => asObject(x) !== undefined) as
         | Record<string, unknown>[]
@@ -480,11 +465,11 @@ function parseStreamCallbackSong(raw: unknown): StreamCallbackSong {
  * recording, not lower-confidence guesses at the same track.
  */
 export interface StreamCallbackMatch {
-  radioId: number;
+  radioId?: number | undefined;
   timestamp?: string | undefined;
   playLength?: number | undefined;
-  /** Top match — always present. */
-  song: StreamCallbackSong;
+  /** Top match, when present. */
+  song?: StreamCallbackSong | undefined;
   /** Variant catalog releases (may have different artist/title); empty array when only one match. */
   alternatives: StreamCallbackSong[];
   extras: Record<string, unknown>;
@@ -501,13 +486,11 @@ const STREAM_CALLBACK_MATCH_KEYS = [
 export function parseStreamCallbackMatch(raw: unknown): StreamCallbackMatch {
   const r = requireObject(raw, "StreamCallbackMatch");
   const radioId = asNumber(r.radio_id);
-  if (radioId === undefined) throw new TypeError("StreamCallbackMatch: radio_id not number");
-  const resultsRaw = r.results;
-  if (!Array.isArray(resultsRaw)) throw new TypeError("StreamCallbackMatch: results not array");
-  if (resultsRaw.length === 0) throw new TypeError("StreamCallbackMatch: results is empty");
-  const songs = resultsRaw.map(parseStreamCallbackSong);
+  const resultsRaw = Array.isArray(r.results) ? r.results : [];
+  const songs = resultsRaw
+    .filter((x): x is Record<string, unknown> => asObject(x) !== undefined)
+    .map(parseStreamCallbackSong);
   const [first, ...rest] = songs;
-  if (first === undefined) throw new TypeError("StreamCallbackMatch: results is empty");
   return {
     radioId,
     timestamp: asString(r.timestamp),
@@ -520,10 +503,10 @@ export function parseStreamCallbackMatch(raw: unknown): StreamCallbackMatch {
 }
 
 export interface StreamCallbackNotification {
-  radioId: number;
+  radioId?: number | undefined;
   streamRunning?: boolean | undefined;
-  notificationCode: number;
-  notificationMessage: string;
+  notificationCode?: number | undefined;
+  notificationMessage?: string | undefined;
   /** Outer `time` field on the callback envelope (epoch seconds). */
   time?: number | undefined;
   extras: Record<string, unknown>;
@@ -540,14 +523,8 @@ const STREAM_CALLBACK_NOTIFICATION_KEYS = [
 export function parseStreamCallbackNotification(raw: unknown): StreamCallbackNotification {
   const r = requireObject(raw, "StreamCallbackNotification");
   const radioId = asNumber(r.radio_id);
-  if (radioId === undefined)
-    throw new TypeError("StreamCallbackNotification: radio_id not number");
   const code = asNumber(r.notification_code);
-  if (code === undefined)
-    throw new TypeError("StreamCallbackNotification: notification_code not number");
   const message = asString(r.notification_message);
-  if (message === undefined)
-    throw new TypeError("StreamCallbackNotification: notification_message not string");
   return {
     radioId,
     streamRunning: asBoolean(r.stream_running),
@@ -559,8 +536,8 @@ export function parseStreamCallbackNotification(raw: unknown): StreamCallbackNot
 }
 
 export interface LyricsResult {
-  artist: string;
-  title: string;
+  artist?: string | undefined;
+  title?: string | undefined;
   lyrics?: string | undefined;
   songId?: number | undefined;
   fullTitle?: string | undefined;
@@ -586,8 +563,6 @@ export function parseLyricsResult(raw: unknown): LyricsResult {
   const r = requireObject(raw, "LyricsResult");
   const artist = asString(r.artist);
   const title = asString(r.title);
-  if (artist === undefined) throw new TypeError("LyricsResult: artist not string");
-  if (title === undefined) throw new TypeError("LyricsResult: title not string");
   return {
     artist,
     title,

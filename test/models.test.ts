@@ -77,8 +77,10 @@ describe("models — RecognitionResult", () => {
     expect(r.spotify?.id).toBe("abc");
   });
 
-  it("missing timecode raises", () => {
-    expect(() => parseRecognitionResult({ artist: "x" })).toThrowError(/timecode/);
+  it("tolerates a missing timecode", () => {
+    const r = parseRecognitionResult({ artist: "x" });
+    expect(r.timecode).toBeUndefined();
+    expect(r.artist).toBe("x");
   });
 
   it("non-object raises", () => {
@@ -88,6 +90,24 @@ describe("models — RecognitionResult", () => {
 });
 
 describe("models — EnterpriseMatch", () => {
+  it("tolerates a missing score (the endpoint can omit it)", () => {
+    const m = parseEnterpriseMatch({
+      timecode: "00:31",
+      artist: "Imagine Dragons",
+      title: "Warriors",
+    });
+    expect(m.score).toBeUndefined();
+    expect(m.artist).toBe("Imagine Dragons");
+    expect(m.title).toBe("Warriors");
+  });
+
+  it("tolerates an all-but-empty match without throwing", () => {
+    const m = parseEnterpriseMatch({});
+    expect(m.score).toBeUndefined();
+    expect(m.timecode).toBeUndefined();
+    expect(m.artist).toBeUndefined();
+  });
+
   it("parses isrc/upc fields", () => {
     const m = parseEnterpriseMatch({
       score: 81,
@@ -176,10 +196,10 @@ describe("models — StreamCallbackMatch", () => {
     expect(m.alternatives[0]?.artist).toBe("A2");
   });
 
-  it("throws on empty results", () => {
-    expect(() =>
-      parseStreamCallbackMatch({ radio_id: 1, results: [] }),
-    ).toThrowError(/empty/);
+  it("tolerates empty results", () => {
+    const m = parseStreamCallbackMatch({ radio_id: 1, results: [] });
+    expect(m.song).toBeUndefined();
+    expect(m.alternatives).toHaveLength(0);
   });
 
   it("captures isrc/upc on the song", () => {
