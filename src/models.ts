@@ -38,6 +38,26 @@ function asBoolean(v: unknown): boolean | undefined {
   return typeof v === "boolean" ? v : undefined;
 }
 
+/**
+ * Parse an offset into seconds. Accepts `"SS"`, `"MM:SS"`, `"HH:MM:SS"`, or a
+ * numeric value. Returns `undefined` when the value is absent or unparseable —
+ * never throws (this SDK degrades on bad response fields).
+ */
+export function parseOffsetToSeconds(o: unknown): number | undefined {
+  if (o === undefined || o === null) return undefined;
+  if (typeof o === "number") return Number.isFinite(o) ? o : undefined;
+  const t = String(o).trim();
+  if (t === "") return undefined;
+  let total = 0;
+  for (const part of t.split(":")) {
+    if (part.trim() === "") return undefined;
+    const n = Number(part);
+    if (!Number.isFinite(n)) return undefined;
+    total = total * 60 + n;
+  }
+  return total;
+}
+
 /** Streaming providers supported by the lis.tn redirect helper. */
 export type StreamingProvider =
   | "spotify"
@@ -263,6 +283,13 @@ export interface EnterpriseMatch {
   songLink?: string | undefined;
   startOffset?: number | undefined;
   endOffset?: number | undefined;
+  /**
+   * Where this song plays in your file, in seconds — the chunk's file offset
+   * plus `startOffset`/`endOffset`. `undefined` when the chunk offset is
+   * absent or unparseable. Computed during {@link parseEnterpriseChunkResult}.
+   */
+  startSeconds?: number | undefined;
+  endSeconds?: number | undefined;
   extras: Record<string, unknown>;
   rawResponse: Record<string, unknown>;
   readonly thumbnailUrl: string | null;
@@ -285,6 +312,8 @@ const ENTERPRISE_MATCH_KEYS = [
   "song_link",
   "start_offset",
   "end_offset",
+  "start_seconds",
+  "end_seconds",
 ] as const;
 
 export function parseEnterpriseMatch(raw: unknown): EnterpriseMatch {
@@ -305,6 +334,8 @@ export function parseEnterpriseMatch(raw: unknown): EnterpriseMatch {
     songLink,
     startOffset: asNumber(r.start_offset),
     endOffset: asNumber(r.end_offset),
+    startSeconds: undefined,
+    endSeconds: undefined,
     extras: pickExtras(r, ENTERPRISE_MATCH_KEYS),
     rawResponse: r,
     streamingUrl(provider: StreamingProvider): string | null {
@@ -348,8 +379,19 @@ export function parseEnterpriseChunkResult(raw: unknown): EnterpriseChunkResult 
   const r = requireObject(raw, "EnterpriseChunkResult");
   const songsRaw = Array.isArray(r.songs) ? r.songs : [];
   const offset = asString(r.offset);
+  // The chunk offset is the fragment's position in the user's file. Anchor each
+  // song's millisecond offsets to it, in seconds. Skip when unparseable.
+  const base = parseOffsetToSeconds(r.offset);
+  const songs = songsRaw.map((s) => {
+    const match = parseEnterpriseMatch(s);
+    if (base !== undefined) {
+      match.startSeconds = base + (match.startOffset ?? 0) / 1000;
+      match.endSeconds = base + (match.endOffset ?? 0) / 1000;
+    }
+    return match;
+  });
   return {
-    songs: songsRaw.map(parseEnterpriseMatch),
+    songs,
     offset,
     extras: pickExtras(r, ENTERPRISE_CHUNK_KEYS),
     rawResponse: r,
