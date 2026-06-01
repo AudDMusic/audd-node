@@ -145,10 +145,15 @@ for (const m of matches) {
 }
 ```
 
-`EnterpriseMatch` carries the same core tags plus `score`, `startOffset`,
-`endOffset`, `isrc`, `upc`. Access to `isrc`, `upc`, and `score` requires
-a Startup plan or higher — [contact us](mailto:api@audd.io) for enterprise
-features.
+`EnterpriseMatch` carries the same core tags plus `score`, `startSeconds`,
+`endSeconds`, `startOffset`, `endOffset`, `isrc`, `upc`. `startSeconds` and
+`endSeconds` are where this song plays in your file, in seconds (e.g. 64.2 to
+71.8) — feed straight to a player or ffmpeg; computed while parsing the chunked
+response, and `recognizeEnterprise` requests accurate offsets by default so
+they're precise. `startOffset`/`endOffset` are the raw millisecond positions
+within AudD's internal 12-second scan fragment behind them. Access to `isrc`,
+`upc`, and `score` requires a Startup plan or higher — [contact
+us](mailto:api@audd.io) for enterprise features.
 
 The default per-call timeout is **1 hour** for this endpoint (60s for
 standard recognition); override with `timeoutMs`.

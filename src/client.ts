@@ -129,6 +129,7 @@ export interface RecognizeEnterpriseOptions {
   limit?: number;
   skipFirstSeconds?: number;
   useTimecode?: boolean;
+  /** Request precise within-fragment offsets. Defaults to `true`; pass `false` to opt out. */
   accurateOffsets?: boolean;
   timeoutMs?: number;
   /**
@@ -161,8 +162,10 @@ function buildEnterpriseFields(opts: RecognizeEnterpriseOptions): Record<string,
   if (opts.skipFirstSeconds !== undefined)
     fields["skip_first_seconds"] = String(opts.skipFirstSeconds);
   if (opts.useTimecode !== undefined) fields["use_timecode"] = opts.useTimecode ? "true" : "false";
-  if (opts.accurateOffsets !== undefined)
-    fields["accurate_offsets"] = opts.accurateOffsets ? "true" : "false";
+  // Default accurate offsets on so startSeconds/endSeconds anchor precisely;
+  // caller can pass `accurateOffsets: false` to opt out.
+  const accurate = opts.accurateOffsets ?? true;
+  fields["accurate_offsets"] = accurate ? "true" : "false";
   return fields;
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "@audd/sdk",
-  "version": "1.5.10",
+  "version": "1.5.11",
   "description": "Official TypeScript SDK for the AudD music recognition API.",
   "license": "MIT",
   "author": "AudD <api@audd.io>",

@@ -178,6 +178,66 @@ describe("AudD.recognizeEnterprise", () => {
     expect(matches[0]?.artist).toBe("Tears For Fears");
     expect(matches[0]?.isrc).toBe("GBUM71403885");
   });
+
+  it("anchors startSeconds/endSeconds to the chunk offset; undefined when offset is absent", async () => {
+    const fetchImpl = mockFetch(
+      () =>
+        new Response(
+          JSON.stringify({
+            status: "success",
+            result: [
+              {
+                offset: "00:01:00",
+                songs: [
+                  {
+                    artist: "A",
+                    title: "T",
+                    start_offset: 4200,
+                    end_offset: 11800,
+                  },
+                ],
+              },
+              {
+                // No offset on this chunk → seconds cannot be anchored.
+                songs: [{ artist: "B", title: "U", start_offset: 1000, end_offset: 2000 }],
+              },
+            ],
+          }),
+        ),
+    );
+    const audd = new AudD({ apiToken: "test", fetch: fetchImpl });
+    const matches = await audd.recognizeEnterprise("https://x.mp3", { limit: 5 });
+    expect(matches).toHaveLength(2);
+    // 60s chunk offset + 4200ms / 11800ms within the fragment.
+    expect(matches[0]?.startSeconds).toBeCloseTo(64.2, 5);
+    expect(matches[0]?.endSeconds).toBeCloseTo(71.8, 5);
+    // Raw within-fragment offsets are preserved.
+    expect(matches[0]?.startOffset).toBe(4200);
+    expect(matches[0]?.endOffset).toBe(11800);
+    // Absent chunk offset → seconds undefined.
+    expect(matches[1]?.startSeconds).toBeUndefined();
+    expect(matches[1]?.endSeconds).toBeUndefined();
+  });
+
+  it("sends accurate_offsets=true by default", async () => {
+    const fetchImpl = mockFetch(async (req) => {
+      const body = await req.formData();
+      expect(body.get("accurate_offsets")).toBe("true");
+      return new Response(JSON.stringify({ status: "success", result: [] }));
+    });
+    const audd = new AudD({ apiToken: "test", fetch: fetchImpl });
+    await audd.recognizeEnterprise("https://x.mp3", { limit: 1 });
+  });
+
+  it("respects accurateOffsets: false when explicitly passed", async () => {
+    const fetchImpl = mockFetch(async (req) => {
+      const body = await req.formData();
+      expect(body.get("accurate_offsets")).toBe("false");
+      return new Response(JSON.stringify({ status: "success", result: [] }));
+    });
+    const audd = new AudD({ apiToken: "test", fetch: fetchImpl });
+    await audd.recognizeEnterprise("https://x.mp3", { limit: 1, accurateOffsets: false });
+  });
 });
 
 describe("AudD.customCatalog.add", () => {
