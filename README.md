@@ -1,5 +1,6 @@
 # audd-node
 
+[![Powered by AudD](https://img.shields.io/badge/Music_Recognition-AudD_API-2a4eef)](https://audd.io)
 [![CI](https://github.com/AudDMusic/audd-node/actions/workflows/ci.yml/badge.svg)](https://github.com/AudDMusic/audd-node/actions/workflows/ci.yml)
 [![Contract](https://github.com/AudDMusic/audd-node/actions/workflows/contract.yml/badge.svg)](https://github.com/AudDMusic/audd-node/actions/workflows/contract.yml)
 [![npm](https://img.shields.io/npm/v/@audd/sdk.svg)](https://www.npmjs.com/package/@audd/sdk)
