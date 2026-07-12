@@ -32,14 +32,76 @@ function asObjectLenient(raw: unknown): Record<string, unknown> {
   return asObject(raw) ?? {};
 }
 
+/**
+ * Coerce a scalar response field to a `string`. Wrong-typed-but-convertible
+ * values are rendered rather than dropped: numbers and booleans become their
+ * JS-canonical `String(v)` form (`85` → `"85"`, `8.5` → `"8.5"`, `true` →
+ * `"true"`). Objects, arrays, `null`, and `undefined` are not representable as
+ * a scalar string and degrade to `undefined`.
+ */
 function asString(v: unknown): string | undefined {
-  return typeof v === "string" ? v : undefined;
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return undefined;
 }
+
+/**
+ * Parse a value into a finite JS number, or `undefined`. Numeric strings are
+ * accepted only when trimmed, non-empty, and finite — guarding the JS pitfall
+ * that `Number("")`, `Number("   ")`, and `Number("Infinity")` don't represent
+ * a real numeric field (`""`/`"7a"`/`"NaN"`/`"Infinity"` → `undefined`; `"7"`,
+ * `"8.5"`, `"-3"`, `"1e2"` parse). Booleans map to `0`/`1`.
+ */
+function toFiniteNumber(v: unknown): number | undefined {
+  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
+  if (typeof v === "boolean") return v ? 1 : 0;
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (t === "") return undefined;
+    const n = Number(t);
+    return Number.isFinite(n) ? n : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Coerce a scalar response field to a `number` (float-flavored — for fields
+ * like `score` that may be fractional). Numeric strings and booleans are
+ * converted; non-numeric strings, objects, arrays, `null`, and `undefined`
+ * degrade to `undefined`.
+ */
 function asNumber(v: unknown): number | undefined {
-  return typeof v === "number" ? v : undefined;
+  return toFiniteNumber(v);
 }
+
+/**
+ * Coerce a scalar response field to an integer — for semantically integer
+ * fields (ids, counts, timestamps, offsets). Floats and numeric strings are
+ * truncated toward zero (`8.9` → `8`, `"7.9"` → `7`); booleans map to `0`/`1`.
+ * Non-numeric values degrade to `undefined` rather than a misleading `0`.
+ */
+function asInteger(v: unknown): number | undefined {
+  const n = toFiniteNumber(v);
+  return n === undefined ? undefined : Math.trunc(n);
+}
+
+/**
+ * Coerce a scalar response field to a `boolean`. Numbers map by `v !== 0`.
+ * Strings are matched against a strict whitelist (trimmed, case-insensitive):
+ * `"true"`/`"1"`/`"yes"`/`"on"` → `true`; `"false"`/`"0"`/`"no"`/`"off"`/`""`
+ * → `false`; any other string is not an unambiguous boolean and degrades to
+ * `undefined`. Objects, arrays, `null`, and `undefined` degrade to `undefined`.
+ */
 function asBoolean(v: unknown): boolean | undefined {
-  return typeof v === "boolean" ? v : undefined;
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  if (typeof v === "string") {
+    const t = v.trim().toLowerCase();
+    if (t === "true" || t === "1" || t === "yes" || t === "on") return true;
+    if (t === "false" || t === "0" || t === "no" || t === "off" || t === "") return false;
+    return undefined;
+  }
+  return undefined;
 }
 
 /**
@@ -211,7 +273,7 @@ const RECOGNITION_KEYS = [
 export function parseRecognitionResult(raw: unknown): RecognitionResult {
   const r = asObjectLenient(raw);
   const timecode = asString(r.timecode);
-  const audioId = asNumber(r.audio_id);
+  const audioId = asInteger(r.audio_id);
   const artist = asString(r.artist);
   const title = asString(r.title);
   const songLink = asString(r.song_link);
@@ -336,8 +398,8 @@ export function parseEnterpriseMatch(raw: unknown): EnterpriseMatch {
     isrc: asString(r.isrc),
     upc: asString(r.upc),
     songLink,
-    startOffset: asNumber(r.start_offset),
-    endOffset: asNumber(r.end_offset),
+    startOffset: asInteger(r.start_offset),
+    endOffset: asInteger(r.end_offset),
     startSeconds: undefined,
     endSeconds: undefined,
     extras: pickExtras(r, ENTERPRISE_MATCH_KEYS),
@@ -417,7 +479,7 @@ const STREAM_KEYS = ["radio_id", "url", "stream_running", "longpoll_category"] a
 
 export function parseStream(raw: unknown): Stream {
   const r = asObjectLenient(raw);
-  const radioId = asNumber(r.radio_id);
+  const radioId = asInteger(r.radio_id);
   const url = asString(r.url);
   const streamRunning = asBoolean(r.stream_running);
   return {
@@ -533,7 +595,7 @@ const STREAM_CALLBACK_MATCH_KEYS = [
 
 export function parseStreamCallbackMatch(raw: unknown): StreamCallbackMatch {
   const r = asObjectLenient(raw);
-  const radioId = asNumber(r.radio_id);
+  const radioId = asInteger(r.radio_id);
   const resultsRaw = Array.isArray(r.results) ? r.results : [];
   const songs = resultsRaw
     .filter((x): x is Record<string, unknown> => asObject(x) !== undefined)
@@ -542,7 +604,7 @@ export function parseStreamCallbackMatch(raw: unknown): StreamCallbackMatch {
   return {
     radioId,
     timestamp: asString(r.timestamp),
-    playLength: asNumber(r.play_length),
+    playLength: asInteger(r.play_length),
     song: first,
     alternatives: rest,
     extras: pickExtras(r, STREAM_CALLBACK_MATCH_KEYS),
@@ -570,8 +632,8 @@ const STREAM_CALLBACK_NOTIFICATION_KEYS = [
 
 export function parseStreamCallbackNotification(raw: unknown): StreamCallbackNotification {
   const r = asObjectLenient(raw);
-  const radioId = asNumber(r.radio_id);
-  const code = asNumber(r.notification_code);
+  const radioId = asInteger(r.radio_id);
+  const code = asInteger(r.notification_code);
   const message = asString(r.notification_message);
   return {
     radioId,
@@ -615,9 +677,9 @@ export function parseLyricsResult(raw: unknown): LyricsResult {
     artist,
     title,
     lyrics: asString(r.lyrics),
-    songId: asNumber(r.song_id),
+    songId: asInteger(r.song_id),
     fullTitle: asString(r.full_title),
-    artistId: asNumber(r.artist_id),
+    artistId: asInteger(r.artist_id),
     songLink: asString(r.song_link),
     media: asString(r.media),
     extras: pickExtras(r, LYRICS_KEYS),

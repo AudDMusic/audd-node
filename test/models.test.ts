@@ -93,16 +93,16 @@ describe("models — RecognitionResult", () => {
     }
   });
 
-  it("wrong-typed fields degrade to undefined — never throw", () => {
+  it("coerces convertible wrong-typed scalars; drops unconvertible ones — never throws", () => {
     const r = parseRecognitionResult({
-      audio_id: "42",
-      timecode: 42,
-      artist: ["not", "a", "string"],
-      apple_music: [1, 2, 3],
-      musicbrainz: "nope",
+      audio_id: "42", // numeric string → integer
+      timecode: 42, // number → canonical string
+      artist: ["not", "a", "string"], // array → not scalar-representable
+      apple_music: [1, 2, 3], // wrong-shaped container
+      musicbrainz: "nope", // wrong-shaped container
     });
-    expect(r.audioId).toBeUndefined();
-    expect(r.timecode).toBeUndefined();
+    expect(r.audioId).toBe(42);
+    expect(r.timecode).toBe("42");
     expect(r.artist).toBeUndefined();
     expect(r.appleMusic).toBeUndefined();
     expect(r.musicbrainz).toBeUndefined();
