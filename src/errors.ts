@@ -91,6 +91,29 @@ export class AudDConnectionError extends AudDError {
   }
 }
 
+/**
+ * Internal marker for aborts triggered by the caller's own AbortSignal —
+ * distinguishes user cancellation from the SDK's own timeout abort. Never
+ * retried; surfaced as an {@link AudDConnectionError} with a cancellation
+ * message.
+ */
+const USER_ABORT_ERROR_NAME = "UserAbortError";
+
+export function userAbortError(cause: unknown): Error {
+  const err = new Error("Request was cancelled by the caller's AbortSignal");
+  err.name = USER_ABORT_ERROR_NAME;
+  (err as { cause?: unknown }).cause = cause;
+  return err;
+}
+
+export function isUserAbortError(err: unknown): boolean {
+  return (
+    err !== null &&
+    typeof err === "object" &&
+    (err as { name?: unknown }).name === USER_ABORT_ERROR_NAME
+  );
+}
+
 export class AudDSerializationError extends AudDError {
   override name = "AudDSerializationError";
   rawText: string;

@@ -2,19 +2,25 @@
 import { addReturnToUrl, deriveLongpollCategory, parseCallback } from "./helpers.js";
 import {
   AudDAPIError,
-  AudDConnectionError,
   AudDInvalidRequestError,
   AudDSerializationError,
   AudDServerError,
   raiseFromErrorResponse,
 } from "./errors.js";
-import type { HttpClient, HttpResponse } from "./http.js";
+import { emitAround, type OnEventHook } from "./events.js";
+import type { HttpClient } from "./http.js";
 import { startLongpoll, type LongpollPoll } from "./longpollCore.js";
-import { parseStream, type Stream } from "./models.js";
-import { retry, type RetryPolicy } from "./retry.js";
+import { asObject, parseStream, type Stream } from "./models.js";
+import { runRetried, type RetryPolicy } from "./retry.js";
 import type { ParsedCallback } from "./helpers.js";
 
 const API_BASE = "https://api.audd.io";
+
+/**
+ * Extra transport headroom on top of the server-side longpoll timeout, so a
+ * poll of N seconds isn't cut off by the SDK's own HTTP timeout.
+ */
+const LONGPOLL_TIMEOUT_MARGIN_SEC = 10;
 
 /** Server signals "no callback URL configured" with code 19 from getCallbackUrl. */
 const NO_CALLBACK_ERROR_CODE = 19;
@@ -98,29 +104,14 @@ function decodeSuccess(
   });
 }
 
-async function runRetried<T extends HttpResponse>(
-  fn: () => Promise<T>,
-  policy: RetryPolicy,
-): Promise<T> {
-  try {
-    return await retry(fn, policy);
-  } catch (err) {
-    if (err instanceof TypeError) {
-      throw new AudDConnectionError(`Network error: ${err.message}`, err);
-    }
-    if (err !== null && typeof err === "object" && (err as { name?: string }).name === "AbortError") {
-      throw new AudDConnectionError("Request was aborted (timeout)", err);
-    }
-    throw err;
-  }
-}
-
 export class Streams {
   constructor(
     private readonly http: HttpClient,
     private readonly readPolicy: RetryPolicy,
     private readonly mutatingPolicy: RetryPolicy,
-    private readonly apiToken: string,
+    /** Live token provider — token rotations on the client propagate here. */
+    private readonly apiToken: () => string,
+    private readonly onEvent?: OnEventHook,
   ) {}
 
   private async post(
@@ -128,9 +119,9 @@ export class Streams {
     fields: Record<string, string | undefined>,
     policy: RetryPolicy,
   ): Promise<unknown> {
-    const resp = await runRetried(
-      () => this.http.postForm(`${API_BASE}/${path}/`, fields),
-      policy,
+    const url = `${API_BASE}/${path}/`;
+    const resp = await emitAround(this.onEvent, path, url, () =>
+      runRetried(() => this.http.postForm(url, fields), policy),
     );
     return decodeSuccess(resp.jsonBody, resp.httpStatus, resp.requestId);
   }
@@ -189,12 +180,13 @@ export class Streams {
   async list(): Promise<Stream[]> {
     const result = await this.post("getStreams", {}, this.readPolicy);
     if (!Array.isArray(result)) return [];
-    return result.map(parseStream);
+    // Skip wrong-typed entries instead of failing the whole list.
+    return result.filter((x) => asObject(x) !== undefined).map(parseStream);
   }
 
   /** Compute the 9-char longpoll category locally — pure, no network. */
   deriveLongpollCategory(radioId: number): string {
-    return deriveLongpollCategory(this.apiToken, radioId);
+    return deriveLongpollCategory(this.apiToken(), radioId);
   }
 
   /**
@@ -276,14 +268,21 @@ export class Streams {
     const timeoutSec = effectiveOpts.timeout ?? 50;
     const httpClient = this.http;
     const readPolicy = this.readPolicy;
+    const onEvent = this.onEvent;
+    const longpollUrl = `${API_BASE}/longpoll/`;
+    // The HTTP timeout must outlast the server-side poll window, whatever
+    // `timeout` the caller picked.
+    const timeoutMs = (timeoutSec + LONGPOLL_TIMEOUT_MARGIN_SEC) * 1000;
     return startLongpoll({
       category,
       timeout: timeoutSec,
       sinceTime: effectiveOpts.sinceTime,
       fetchOnce: (params, signal) =>
-        runRetried(
-          () => httpClient.get(`${API_BASE}/longpoll/`, params, { signal }),
-          readPolicy,
+        emitAround(onEvent, "longpoll", longpollUrl, () =>
+          runRetried(
+            () => httpClient.get(longpollUrl, params, { signal, timeoutMs }),
+            readPolicy,
+          ),
         ),
     });
   }

@@ -2,13 +2,13 @@
  * Custom-catalog endpoint. NOT for music recognition — see method JSDoc.
  */
 import {
-  AudDConnectionError,
   AudDSerializationError,
   AudDServerError,
   raiseFromErrorResponse,
 } from "./errors.js";
-import type { FormFieldValue, HttpClient, HttpResponse } from "./http.js";
-import { retry, type RetryPolicy } from "./retry.js";
+import { emitAround, type OnEventHook } from "./events.js";
+import type { FormFieldValue, HttpClient } from "./http.js";
+import { runRetried, type RetryPolicy } from "./retry.js";
 import { prepareSource, type Source } from "./source.js";
 
 const UPLOAD_URL = "https://api.audd.io/upload/";
@@ -41,27 +41,11 @@ function decodeSuccess(body: unknown, httpStatus: number, requestId: string | nu
   }
 }
 
-async function runRetried<T extends HttpResponse>(
-  fn: () => Promise<T>,
-  policy: RetryPolicy,
-): Promise<T> {
-  try {
-    return await retry(fn, policy);
-  } catch (err) {
-    if (err instanceof TypeError) {
-      throw new AudDConnectionError(`Network error: ${err.message}`, err);
-    }
-    if (err !== null && typeof err === "object" && (err as { name?: string }).name === "AbortError") {
-      throw new AudDConnectionError("Request was aborted (timeout)", err);
-    }
-    throw err;
-  }
-}
-
 export class CustomCatalog {
   constructor(
     private readonly http: HttpClient,
     private readonly noRetryPolicy: RetryPolicy,
+    private readonly onEvent?: OnEventHook,
   ) {}
 
   /**
@@ -85,11 +69,13 @@ export class CustomCatalog {
     const reopen = prepareSource(opts.source);
     const audioId = String(opts.audioId);
 
-    const resp = await runRetried(async () => {
-      const prepared = await reopen();
-      const fields: Record<string, FormFieldValue> = { ...prepared.fields, audio_id: audioId };
-      return this.http.postForm(UPLOAD_URL, fields);
-    }, this.noRetryPolicy);
+    const resp = await emitAround(this.onEvent, "customCatalogAdd", UPLOAD_URL, () =>
+      runRetried(async () => {
+        const prepared = await reopen();
+        const fields: Record<string, FormFieldValue> = { ...prepared.fields, audio_id: audioId };
+        return this.http.postForm(UPLOAD_URL, fields);
+      }, this.noRetryPolicy),
+    );
 
     decodeSuccess(resp.jsonBody, resp.httpStatus, resp.requestId);
   }

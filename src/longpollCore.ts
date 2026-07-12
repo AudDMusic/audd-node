@@ -18,6 +18,7 @@ import type {
   StreamCallbackNotification,
 } from "./models.js";
 import {
+  asObject,
   parseStreamCallbackMatch,
   parseStreamCallbackNotification,
 } from "./models.js";
@@ -33,7 +34,7 @@ const HTTP_CLIENT_ERROR_FLOOR = 400;
  * ```ts
  * const poll = await audd.streams.longpoll(category);
  * for await (const m of poll.matches) {
- *   console.log(m.song.artist, m.song.title);
+ *   console.log(m.song?.artist ?? "?", m.song?.title ?? "?");
  * }
  * ```
  *
@@ -135,9 +136,10 @@ class AsyncQueue<T> {
 }
 
 /**
- * Decode one longpoll HTTP response into a Match | Notification | null
- * (null = keep-alive `{timeout, timestamp}` or any non-event body — caller
- * keeps polling). Throws on HTTP non-2xx and JSON-shape errors.
+ * Decode one longpoll HTTP response into a Match | Notification | keep-alive
+ * (keep-alive = `{timeout, timestamp}` or any non-event body — caller keeps
+ * polling). Throws on HTTP non-2xx and non-JSON bodies; wrong-typed event
+ * payloads degrade to keep-alives so one odd response never kills the loop.
  */
 function decodeOne(
   resp: HttpResponse,
@@ -159,13 +161,13 @@ function decodeOne(
     );
   }
   const dict = body as Record<string, unknown>;
-  if ("notification" in dict) {
+  if (asObject(dict.notification) !== undefined) {
     const notification = parseStreamCallbackNotification(dict.notification);
     const t = dict["time"];
     if (typeof t === "number") notification.time = t;
     return { kind: "notification", notification };
   }
-  if ("result" in dict) {
+  if (asObject(dict.result) !== undefined) {
     return { kind: "match", match: parseStreamCallbackMatch(dict.result) };
   }
   // Either a `{timeout, timestamp}` keep-alive or an empty/unknown body —

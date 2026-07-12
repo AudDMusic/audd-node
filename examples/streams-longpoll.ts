@@ -29,7 +29,7 @@ async function main(): Promise<void> {
     (async () => {
       for await (const m of poll.matches) {
         console.log(
-          `match radio=${m.radioId}  ${m.song.artist} - ${m.song.title}  score=${m.song.score}`,
+          `match radio=${m.radioId}  ${m.song?.artist ?? "?"} - ${m.song?.title ?? "?"}  score=${m.song?.score ?? "?"}`,
         );
       }
     })(),

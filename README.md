@@ -274,7 +274,7 @@ app.use(express.json());
 app.post("/audd-callback", async (req, res) => {
   const { match, notification } = await handleCallback(req);
   if (match) {
-    console.log(`${match.song.artist} - ${match.song.title}  score=${match.song.score}`);
+    console.log(`${match.song?.artist ?? "?"} - ${match.song?.title ?? "?"}  score=${match.song?.score ?? "?"}`);
     for (const alt of match.alternatives) {
       // alternatives are variant catalog releases — different artist/title is possible
       console.log(`  alt: ${alt.artist} - ${alt.title}`);
@@ -304,7 +304,7 @@ import { handleCallback } from "@audd/sdk";
 const app = Fastify();
 app.post("/audd-callback", async (req, reply) => {
   const { match } = await handleCallback(req);
-  if (match) console.log(`${match.song.artist} — ${match.song.title}`);
+  if (match) console.log(`${match.song?.artist ?? "?"} — ${match.song?.title ?? "?"}`);
   return { ok: true };
 });
 ```
@@ -323,7 +323,7 @@ const router = new Router();
 app.use(bodyParser());
 router.post("/audd-callback", async (ctx) => {
   const { match } = await handleCallback(ctx.request);
-  if (match) console.log(`${match.song.artist} — ${match.song.title}`);
+  if (match) console.log(`${match.song?.artist ?? "?"} — ${match.song?.title ?? "?"}`);
   ctx.body = { ok: true };
 });
 app.use(router.routes());
@@ -337,7 +337,7 @@ import { handleCallback } from "@audd/sdk";
 
 export async function POST(req: NextRequest) {
   const { match } = await handleCallback(req);
-  if (match) console.log(`${match.song.artist} — ${match.song.title}`);
+  if (match) console.log(`${match.song?.artist ?? "?"} — ${match.song?.title ?? "?"}`);
   return NextResponse.json({ ok: true });
 }
 ```
@@ -359,7 +359,7 @@ const radioId = 1; // any integer you choose — your handle for this stream
 
 const poll = await audd.streams.longpoll({ radioId, timeout: 30 });
 for await (const m of poll.matches) {
-  console.log(m.song.artist, m.song.title);
+  console.log(m.song?.artist ?? "?", m.song?.title ?? "?");
 }
 ```
 
@@ -369,7 +369,7 @@ Consume matches and notifications concurrently:
 await Promise.all([
   (async () => {
     for await (const m of poll.matches) {
-      console.log("match:", m.song.artist, m.song.title);
+      console.log("match:", m.song?.artist ?? "?", m.song?.title ?? "?");
     }
   })(),
   (async () => {
@@ -402,7 +402,7 @@ import { LongpollConsumer } from "@audd/sdk/longpoll";
 const consumer = new LongpollConsumer("abc123def");
 const poll = consumer.iterate({ timeout: 30 });
 for await (const m of poll.matches) {
-  console.log(m.song.artist, m.song.title);
+  console.log(m.song?.artist ?? "?", m.song?.title ?? "?");
 }
 ```
 

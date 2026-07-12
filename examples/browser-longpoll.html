@@ -44,7 +44,7 @@ import { LongpollConsumer } from "audd/longpoll";
 const consumer = new LongpollConsumer("e31a31e76");
 const poll = consumer.iterate({ timeout: 30 });
 for await (const m of poll.matches) {
-  console.log(m.song.artist, m.song.title);
+  console.log(m.song?.artist ?? "?", m.song?.title ?? "?");
 }
 // notifications and errors are also iterables on `poll`</code></pre>
 

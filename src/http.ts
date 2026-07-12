@@ -1,3 +1,4 @@
+import { userAbortError } from "./errors.js";
 import { userAgent } from "./userAgent.js";
 
 export interface HttpResponse {
@@ -110,6 +111,18 @@ export class HttpClient {
         requestId: response.headers.get("x-request-id"),
         rawText: text,
       };
+    } catch (err) {
+      // Distinguish the caller's own cancellation from the SDK timeout abort:
+      // user cancellations must not be labelled as timeouts or retried.
+      if (
+        userSignal?.aborted === true &&
+        err !== null &&
+        typeof err === "object" &&
+        (err as { name?: unknown }).name === "AbortError"
+      ) {
+        throw userAbortError(err);
+      }
+      throw err;
     } finally {
       clearTimeout(timer);
       if (userSignal !== undefined) {

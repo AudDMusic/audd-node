@@ -1,9 +1,9 @@
 {
   "name": "@audd/sdk",
-  "version": "1.5.11",
+  "version": "1.5.12",
   "description": "Official TypeScript SDK for the AudD music recognition API.",
   "license": "MIT",
-  "author": "AudD <api@audd.io>",
+  "author": "AudD, LLC (https://audd.io)",
   "repository": "github:AudDMusic/audd-node",
   "homepage": "https://audd.io",
   "bugs": "https://github.com/AudDMusic/audd-node/issues",
@@ -19,22 +19,31 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./longpoll": {
-      "types": "./dist/longpoll.d.ts",
-      "import": "./dist/longpoll.js",
-      "require": "./dist/longpoll.cjs"
+      "import": {
+        "types": "./dist/longpoll.d.ts",
+        "default": "./dist/longpoll.js"
+      },
+      "require": {
+        "types": "./dist/longpoll.d.cts",
+        "default": "./dist/longpoll.cjs"
+      }
     },
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "README.md",
-    "LICENSE",
-    "CHANGELOG.md"
+    "LICENSE"
   ],
   "engines": {
     "node": ">=20"

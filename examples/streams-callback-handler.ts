@@ -21,7 +21,7 @@ app.post("/audd-callback", async (req, res) => {
   const { match, notification } = await handleCallback(req);
   if (match) {
     console.log(
-      \`radio=\${match.radioId}  \${match.song.artist} - \${match.song.title}  score=\${match.song.score}\`,
+      \`radio=\${match.radioId}  \${match.song?.artist ?? "?"} - \${match.song?.title ?? "?"}  score=\${match.song?.score ?? "?"}\`,
     );
     for (const alt of match.alternatives) {
       // Alternatives may be variant catalog releases — different artist/title.

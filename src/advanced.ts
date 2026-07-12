@@ -5,32 +5,15 @@
  * client surface.
  */
 import {
-  AudDConnectionError,
   AudDSerializationError,
   raiseFromErrorResponse,
 } from "./errors.js";
-import type { FormFieldValue, HttpClient, HttpResponse } from "./http.js";
+import { emitAround, type OnEventHook } from "./events.js";
+import type { FormFieldValue, HttpClient } from "./http.js";
 import { parseLyricsResult, type LyricsResult } from "./models.js";
-import { retry, type RetryPolicy } from "./retry.js";
+import { runRetried, type RetryPolicy } from "./retry.js";
 
 const API_BASE = "https://api.audd.io";
-
-async function runRetried<T extends HttpResponse>(
-  fn: () => Promise<T>,
-  policy: RetryPolicy,
-): Promise<T> {
-  try {
-    return await retry(fn, policy);
-  } catch (err) {
-    if (err instanceof TypeError) {
-      throw new AudDConnectionError(`Network error: ${err.message}`, err);
-    }
-    if (err !== null && typeof err === "object" && (err as { name?: string }).name === "AbortError") {
-      throw new AudDConnectionError("Request was aborted (timeout)", err);
-    }
-    throw err;
-  }
-}
 
 export class Advanced {
   /**
@@ -41,6 +24,7 @@ export class Advanced {
   constructor(
     private readonly http: HttpClient,
     private readonly recognitionPolicy: RetryPolicy,
+    private readonly onEvent?: OnEventHook,
   ) {}
 
   /** Find lyrics by free-text query. Returns a list of matches (possibly empty). */
@@ -71,9 +55,9 @@ export class Advanced {
       fields[k] = String(v);
     }
 
-    const resp = await runRetried(
-      () => this.http.postForm(`${API_BASE}/${method}/`, fields),
-      this.recognitionPolicy,
+    const url = `${API_BASE}/${method}/`;
+    const resp = await emitAround(this.onEvent, method, url, () =>
+      runRetried(() => this.http.postForm(url, fields), this.recognitionPolicy),
     );
     const body = resp.jsonBody;
     if (typeof body !== "object" || body === null || Array.isArray(body)) {

@@ -18,15 +18,13 @@
  * `audd` module — bundlers tree-shake the auth client out).
  */
 
-import {
-  AudDConnectionError,
-} from "./errors.js";
+import { userAbortError } from "./errors.js";
 import type { FetchLike, HttpResponse } from "./http.js";
 import {
   startLongpoll,
   type LongpollPoll,
 } from "./longpollCore.js";
-import { defaultPolicy, retry, type RetryPolicy } from "./retry.js";
+import { defaultPolicy, runRetried, type RetryPolicy } from "./retry.js";
 import { userAgent } from "./userAgent.js";
 
 export type { LongpollPoll } from "./longpollCore.js";
@@ -57,7 +55,7 @@ export interface IterateOptions {
  * const consumer = new LongpollConsumer("abc123def");
  * const poll = consumer.iterate({ timeout: 30 });
  * for await (const m of poll.matches) {
- *   console.log(m.song.artist, m.song.title);
+ *   console.log(m.song?.artist ?? "?", m.song?.title ?? "?");
  * }
  * ```
  *
@@ -119,26 +117,27 @@ export class LongpollConsumer {
       };
     };
 
-    const fetchOnce = async (
+    const fetchOnce = (
       params: Record<string, string | undefined>,
       signal: AbortSignal,
-    ): Promise<HttpResponse> => {
-      try {
-        return await retry(() => fetchOnceRaw(params, signal), policy);
-      } catch (err) {
-        if (err instanceof TypeError) {
-          throw new AudDConnectionError(`Network error: ${err.message}`, err);
+    ): Promise<HttpResponse> =>
+      runRetried(async () => {
+        try {
+          return await fetchOnceRaw(params, signal);
+        } catch (err) {
+          // The only abort source here is the poll handle's own close() —
+          // a caller cancellation. Mark it so it is never retried.
+          if (
+            signal.aborted &&
+            err !== null &&
+            typeof err === "object" &&
+            (err as { name?: unknown }).name === "AbortError"
+          ) {
+            throw userAbortError(err);
+          }
+          throw err;
         }
-        if (
-          err !== null &&
-          typeof err === "object" &&
-          (err as { name?: string }).name === "AbortError"
-        ) {
-          throw new AudDConnectionError("Request was aborted (timeout)", err);
-        }
-        throw err;
-      }
-    };
+      }, policy);
 
     return startLongpoll({
       category: this.category,

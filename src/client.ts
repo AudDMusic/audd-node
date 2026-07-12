@@ -1,10 +1,10 @@
 /** Top-level AudD client. */
 import {
-  AudDConnectionError,
   AudDSerializationError,
   AudDServerError,
   raiseFromErrorResponse,
 } from "./errors.js";
+import { emitAround, type OnEventHook } from "./events.js";
 import {
   ENTERPRISE_TIMEOUT_MS,
   HttpClient,
@@ -13,6 +13,7 @@ import {
   type HttpResponse,
 } from "./http.js";
 import {
+  asObject,
   parseEnterpriseChunkResult,
   parseRecognitionResult,
   type EnterpriseMatch,
@@ -20,7 +21,7 @@ import {
 } from "./models.js";
 import {
   defaultPolicy,
-  retry,
+  runRetried,
   type RetryClass,
   type RetryPolicy,
 } from "./retry.js";
@@ -37,38 +38,7 @@ const DEPRECATED_PARAMS_CODE = 51;
 const HTTP_CLIENT_ERROR_FLOOR = 400;
 const TOKEN_ENV_VAR = "AUDD_API_TOKEN";
 
-/**
- * Inspection event kinds emitted by the SDK request lifecycle.
- * Hooks receive these via the `onEvent` callback.
- */
-export type AudDEventKind = "request" | "response" | "exception";
-
-/**
- * Inspection event emitted by the SDK request lifecycle.
- * Frozen, plain-data; never includes the api_token or request body bytes.
- */
-export interface AudDEvent {
-  kind: AudDEventKind;
-  /** AudD method name, e.g. "recognize", "addStream". */
-  method: string;
-  url: string;
-  requestId: string | null;
-  httpStatus: number | null;
-  elapsedMs: number | null;
-  errorCode: number | null;
-  extras: Record<string, unknown>;
-}
-
-export type OnEventHook = (event: AudDEvent) => void;
-
-function safeEmit(hook: OnEventHook | undefined, event: AudDEvent): void {
-  if (hook === undefined) return;
-  try {
-    hook(event);
-  } catch {
-    // Observability hooks must never break the request path.
-  }
-}
+export type { AudDEvent, AudDEventKind, OnEventHook } from "./events.js";
 
 function resolveToken(apiToken: string | undefined): string {
   if (apiToken !== undefined && apiToken !== "") return apiToken;
@@ -237,7 +207,9 @@ export function decodeOrRaise(resp: HttpResponse): Record<string, unknown> {
 function decodeRecognize(resp: HttpResponse): RecognitionResult | null {
   const body = decodeOrRaise(resp);
   const result = body["result"];
-  if (result == null) return null;
+  // A wrong-typed `result` degrades to the no-match shape — response parsing
+  // never throws on missing or wrong-typed fields.
+  if (asObject(result) === undefined) return null;
   return parseRecognitionResult(result);
 }
 
@@ -247,27 +219,12 @@ function decodeEnterprise(resp: HttpResponse): EnterpriseMatch[] {
   if (!Array.isArray(chunks)) return [];
   const out: EnterpriseMatch[] = [];
   for (const c of chunks) {
+    // Skip wrong-typed chunk entries instead of failing the whole response.
+    if (asObject(c) === undefined) continue;
     const chunk = parseEnterpriseChunkResult(c);
     out.push(...chunk.songs);
   }
   return out;
-}
-
-async function runRetried<T extends HttpResponse>(
-  fn: () => Promise<T>,
-  policy: RetryPolicy,
-): Promise<T> {
-  try {
-    return await retry(fn, policy);
-  } catch (err) {
-    if (err instanceof TypeError) {
-      throw new AudDConnectionError(`Network error: ${err.message}`, err);
-    }
-    if (err !== null && typeof err === "object" && (err as { name?: string }).name === "AbortError") {
-      throw new AudDConnectionError("Request was aborted (timeout)", err);
-    }
-    throw err;
-  }
 }
 
 /**
@@ -335,7 +292,8 @@ export class AudD {
     this._apiToken = newToken;
     this._http.setApiToken(newToken);
     this._enterpriseHttp.setApiToken(newToken);
-    // Streams namespace caches the token via a getter; nothing to flush there.
+    // Streams reads the token through a live provider, so rotation reaches
+    // deriveLongpollCategory and every subsequent request automatically.
   }
 
   private policyFor(retryClass: RetryClass): RetryPolicy {
@@ -353,7 +311,8 @@ export class AudD {
         this._http,
         this.policyFor("read"),
         this.policyFor("mutating"),
-        this._apiToken,
+        () => this._apiToken,
+        this._onEvent,
       );
     }
     return this._streams;
@@ -364,7 +323,7 @@ export class AudD {
     if (this._customCatalog === undefined) {
       // "none" — custom-catalog upload is metered; never retry on transport
       // failure (could double-charge). Surface a clean error instead.
-      this._customCatalog = new CustomCatalog(this._http, this.policyFor("none"));
+      this._customCatalog = new CustomCatalog(this._http, this.policyFor("none"), this._onEvent);
     }
     return this._customCatalog;
   }
@@ -373,7 +332,7 @@ export class AudD {
   get advanced(): Advanced {
     if (this._advanced === undefined) {
       // RECOGNITION policy: findLyrics is metered.
-      this._advanced = new Advanced(this._http, this.policyFor("recognition"));
+      this._advanced = new Advanced(this._http, this.policyFor("recognition"), this._onEvent);
     }
     return this._advanced;
   }
@@ -391,15 +350,8 @@ export class AudD {
 
     const policy = this.policyFor("recognition");
     const url = `${API_BASE}/`;
-    const startedAt = Date.now();
-    safeEmit(this._onEvent, {
-      kind: "request", method: "recognize", url,
-      requestId: null, httpStatus: null, elapsedMs: null, errorCode: null, extras: {},
-    });
-
-    let resp;
-    try {
-      resp = await runRetried(async () => {
+    const resp = await emitAround(this._onEvent, "recognize", url, () =>
+      runRetried(async () => {
         const prepared = await reopen();
         const fields: Record<string, FormFieldValue> = { ...prepared.fields };
         // extraParameters first; typed fields override on collision.
@@ -410,21 +362,8 @@ export class AudD {
           ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
           ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
         });
-      }, policy);
-    } catch (err) {
-      safeEmit(this._onEvent, {
-        kind: "exception", method: "recognize", url,
-        requestId: null, httpStatus: null,
-        elapsedMs: Date.now() - startedAt, errorCode: null,
-        extras: { name: (err instanceof Error ? err.name : String(err)) },
-      });
-      throw err;
-    }
-    safeEmit(this._onEvent, {
-      kind: "response", method: "recognize", url,
-      requestId: resp.requestId, httpStatus: resp.httpStatus,
-      elapsedMs: Date.now() - startedAt, errorCode: null, extras: {},
-    });
+      }, policy),
+    );
 
     return decodeRecognize(resp);
   }
@@ -443,14 +382,17 @@ export class AudD {
     const extra = buildEnterpriseFields(opts);
 
     const policy = this.policyFor("recognition");
-    const resp = await runRetried(async () => {
-      const prepared = await reopen();
-      const fields: Record<string, FormFieldValue> = { ...prepared.fields, ...extra };
-      return this._enterpriseHttp.postForm(`${ENTERPRISE_BASE}/`, fields, {
-        ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
-        ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
-      });
-    }, policy);
+    const url = `${ENTERPRISE_BASE}/`;
+    const resp = await emitAround(this._onEvent, "recognizeEnterprise", url, () =>
+      runRetried(async () => {
+        const prepared = await reopen();
+        const fields: Record<string, FormFieldValue> = { ...prepared.fields, ...extra };
+        return this._enterpriseHttp.postForm(url, fields, {
+          ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+          ...(opts.signal !== undefined ? { signal: opts.signal } : {}),
+        });
+      }, policy),
+    );
 
     return decodeEnterprise(resp);
   }

@@ -1,3 +1,4 @@
+import { AudDConnectionError, isUserAbortError } from "./errors.js";
 import type { HttpResponse } from "./http.js";
 
 /**
@@ -130,4 +131,33 @@ export async function retry<T extends HttpResponse>(
   }
   if (haveResp && lastResp !== undefined) return lastResp;
   throw lastError;
+}
+
+/**
+ * Run `fn` under the retry policy and map transport-level failures onto
+ * {@link AudDConnectionError}:
+ *
+ * - caller-cancelled requests (their AbortSignal fired) → cancellation
+ *   message, never retried;
+ * - `TypeError` from fetch (DNS/TCP/TLS) → network error;
+ * - `AbortError` (the SDK's own timeout) → timeout message.
+ */
+export async function runRetried<T extends HttpResponse>(
+  fn: () => Promise<T>,
+  policy: RetryPolicy,
+): Promise<T> {
+  try {
+    return await retry(fn, policy);
+  } catch (err) {
+    if (isUserAbortError(err)) {
+      throw new AudDConnectionError("Request was cancelled by the caller's AbortSignal", err);
+    }
+    if (err instanceof TypeError) {
+      throw new AudDConnectionError(`Network error: ${err.message}`, err);
+    }
+    if (err !== null && typeof err === "object" && (err as { name?: string }).name === "AbortError") {
+      throw new AudDConnectionError("Request was aborted (timeout)", err);
+    }
+    throw err;
+  }
 }

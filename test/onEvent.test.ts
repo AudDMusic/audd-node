@@ -63,6 +63,45 @@ describe("onEvent hook", () => {
     await expect(audd.recognize("https://example.mp3")).resolves.toBeNull();
   });
 
+  it("fires for non-recognize methods too (streams.list)", async () => {
+    const events: AudDEvent[] = [];
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ status: "success", result: [] }), {
+          headers: { "content-type": "application/json", "x-request-id": "rid-7" },
+        }),
+    );
+    const audd = new AudD({
+      apiToken: "t",
+      fetch: fetchMock as typeof fetch,
+      onEvent: (e) => events.push(e),
+    });
+    await audd.streams.list();
+    expect(events.map((e) => [e.kind, e.method])).toEqual([
+      ["request", "getStreams"],
+      ["response", "getStreams"],
+    ]);
+    expect(events[1]?.requestId).toBe("rid-7");
+  });
+
+  it("fires for advanced.rawRequest with the AudD method name", async () => {
+    const events: AudDEvent[] = [];
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ status: "success", result: {} }), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const audd = new AudD({
+      apiToken: "t",
+      fetch: fetchMock as typeof fetch,
+      onEvent: (e) => events.push(e),
+    });
+    await audd.advanced.rawRequest("getStreams");
+    expect(events.map((e) => e.kind)).toEqual(["request", "response"]);
+    expect(events[0]?.method).toBe("getStreams");
+  });
+
   it("event never carries the api_token", async () => {
     const events: AudDEvent[] = [];
     const fetchMock = vi.fn(

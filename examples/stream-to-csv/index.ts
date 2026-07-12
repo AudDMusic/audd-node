@@ -155,6 +155,7 @@ async function main(): Promise<void> {
         // possible — alternatives are catalog variants, not lower-confidence
         // guesses at the same recording).
         for (const song of [m.song, ...m.alternatives]) {
+          if (!song) continue;
           csv.write(
             row([
               m.timestamp ?? "",

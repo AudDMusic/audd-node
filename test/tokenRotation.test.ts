@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AudD } from "../src/client.js";
+import { deriveLongpollCategory } from "../src/helpers.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -28,5 +29,17 @@ describe("setApiToken", () => {
   it("rejects empty token", () => {
     const audd = new AudD({ apiToken: "t" });
     expect(() => audd.setApiToken("")).toThrow();
+  });
+
+  it("reaches the streams namespace — deriveLongpollCategory uses the new token", () => {
+    const audd = new AudD({ apiToken: "t-old" });
+    const streams = audd.streams; // instantiate BEFORE rotation
+    expect(streams.deriveLongpollCategory(42)).toBe(deriveLongpollCategory("t-old", 42));
+
+    audd.setApiToken("t-new");
+    expect(streams.deriveLongpollCategory(42)).toBe(deriveLongpollCategory("t-new", 42));
+    expect(audd.streams.deriveLongpollCategory(42)).toBe(
+      deriveLongpollCategory("t-new", 42),
+    );
   });
 });

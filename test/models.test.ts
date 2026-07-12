@@ -3,6 +3,7 @@ import {
   parseEnterpriseChunkResult,
   parseEnterpriseMatch,
   parseLyricsResult,
+  parseOffsetToSeconds,
   parseRecognitionResult,
   parseStream,
   parseStreamCallbackMatch,
@@ -83,9 +84,47 @@ describe("models — RecognitionResult", () => {
     expect(r.artist).toBe("x");
   });
 
-  it("non-object raises", () => {
-    expect(() => parseRecognitionResult("foo")).toThrow();
-    expect(() => parseRecognitionResult(null)).toThrow();
+  it("wrong-typed input degrades to an empty result — never throws", () => {
+    for (const bad of ["foo", null, 42, [1, 2]]) {
+      const r = parseRecognitionResult(bad);
+      expect(r.artist).toBeUndefined();
+      expect(r.title).toBeUndefined();
+      expect(r.extras).toEqual({});
+    }
+  });
+
+  it("wrong-typed fields degrade to undefined — never throw", () => {
+    const r = parseRecognitionResult({
+      audio_id: "42",
+      timecode: 42,
+      artist: ["not", "a", "string"],
+      apple_music: [1, 2, 3],
+      musicbrainz: "nope",
+    });
+    expect(r.audioId).toBeUndefined();
+    expect(r.timecode).toBeUndefined();
+    expect(r.artist).toBeUndefined();
+    expect(r.appleMusic).toBeUndefined();
+    expect(r.musicbrainz).toBeUndefined();
+  });
+});
+
+describe("models — parseOffsetToSeconds", () => {
+  it("parses plain seconds, MM:SS, and HH:MM:SS (including >1h)", () => {
+    expect(parseOffsetToSeconds("90")).toBe(90);
+    expect(parseOffsetToSeconds("1:30")).toBe(90);
+    expect(parseOffsetToSeconds("01:02:03")).toBe(3723);
+    expect(parseOffsetToSeconds(12.5)).toBe(12.5);
+    expect(parseOffsetToSeconds(0)).toBe(0);
+  });
+
+  it("degrades to undefined on absent or unparseable values", () => {
+    expect(parseOffsetToSeconds(undefined)).toBeUndefined();
+    expect(parseOffsetToSeconds(null)).toBeUndefined();
+    expect(parseOffsetToSeconds("")).toBeUndefined();
+    expect(parseOffsetToSeconds("abc")).toBeUndefined();
+    expect(parseOffsetToSeconds("1::30")).toBeUndefined();
+    expect(parseOffsetToSeconds(Number.NaN)).toBeUndefined();
   });
 });
 
@@ -141,6 +180,23 @@ describe("models — EnterpriseMatch", () => {
     expect(c.songs).toHaveLength(1);
     expect(c.songs[0]?.score).toBe(50);
     expect(c.offset).toBe("00:00");
+  });
+
+  it("skips wrong-typed songs entries instead of throwing", () => {
+    const c = parseEnterpriseChunkResult({
+      songs: [{ score: 50 }, 42, null, "junk", { score: 60 }],
+      offset: "00:00",
+    });
+    expect(c.songs.map((s) => s.score)).toEqual([50, 60]);
+  });
+
+  it("anchors startSeconds/endSeconds off an >1h HH:MM:SS chunk offset", () => {
+    const c = parseEnterpriseChunkResult({
+      songs: [{ score: 70, start_offset: 1000, end_offset: 4000 }],
+      offset: "01:02:03",
+    });
+    expect(c.songs[0]?.startSeconds).toBe(3723 + 1);
+    expect(c.songs[0]?.endSeconds).toBe(3723 + 4);
   });
 });
 

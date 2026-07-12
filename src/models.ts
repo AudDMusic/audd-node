@@ -15,17 +15,21 @@ function pickExtras(
   return extras;
 }
 
-function asObject(raw: unknown): Record<string, unknown> | undefined {
+export function asObject(raw: unknown): Record<string, unknown> | undefined {
   if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
     return raw as Record<string, unknown>;
   }
   return undefined;
 }
 
-function requireObject(raw: unknown, what: string): Record<string, unknown> {
-  const o = asObject(raw);
-  if (o === undefined) throw new TypeError(`${what}: expected object`);
-  return o;
+/**
+ * Lenient object coercion for response payloads: wrong-typed input degrades
+ * to an empty object (every field comes out `undefined`) instead of throwing.
+ * Response parsing never throws on missing or wrong-typed fields; call sites
+ * that can skip a bad entry entirely filter with {@link asObject} first.
+ */
+function asObjectLenient(raw: unknown): Record<string, unknown> {
+  return asObject(raw) ?? {};
 }
 
 function asString(v: unknown): string | undefined {
@@ -205,7 +209,7 @@ const RECOGNITION_KEYS = [
 ] as const;
 
 export function parseRecognitionResult(raw: unknown): RecognitionResult {
-  const r = requireObject(raw, "RecognitionResult");
+  const r = asObjectLenient(raw);
   const timecode = asString(r.timecode);
   const audioId = asNumber(r.audio_id);
   const artist = asString(r.artist);
@@ -317,7 +321,7 @@ const ENTERPRISE_MATCH_KEYS = [
 ] as const;
 
 export function parseEnterpriseMatch(raw: unknown): EnterpriseMatch {
-  const r = requireObject(raw, "EnterpriseMatch");
+  const r = asObjectLenient(raw);
   const score = asNumber(r.score);
   const timecode = asString(r.timecode);
   const songLink = asString(r.song_link);
@@ -376,8 +380,10 @@ export interface EnterpriseChunkResult {
 const ENTERPRISE_CHUNK_KEYS = ["songs", "offset"] as const;
 
 export function parseEnterpriseChunkResult(raw: unknown): EnterpriseChunkResult {
-  const r = requireObject(raw, "EnterpriseChunkResult");
-  const songsRaw = Array.isArray(r.songs) ? r.songs : [];
+  const r = asObjectLenient(raw);
+  const songsRaw = Array.isArray(r.songs)
+    ? r.songs.filter((s) => asObject(s) !== undefined) // skip wrong-typed entries
+    : [];
   const offset = asString(r.offset);
   // The chunk offset is the fragment's position in the user's file. Anchor each
   // song's millisecond offsets to it, in seconds. Skip when unparseable.
@@ -410,7 +416,7 @@ export interface Stream {
 const STREAM_KEYS = ["radio_id", "url", "stream_running", "longpoll_category"] as const;
 
 export function parseStream(raw: unknown): Stream {
-  const r = requireObject(raw, "Stream");
+  const r = asObjectLenient(raw);
   const radioId = asNumber(r.radio_id);
   const url = asString(r.url);
   const streamRunning = asBoolean(r.stream_running);
@@ -470,7 +476,7 @@ const STREAM_CALLBACK_SONG_KEYS = [
 ] as const;
 
 function parseStreamCallbackSong(raw: unknown): StreamCallbackSong {
-  const r = requireObject(raw, "StreamCallbackSong");
+  const r = asObjectLenient(raw);
   const artist = asString(r.artist);
   const title = asString(r.title);
   const score = asNumber(r.score);
@@ -526,7 +532,7 @@ const STREAM_CALLBACK_MATCH_KEYS = [
 ] as const;
 
 export function parseStreamCallbackMatch(raw: unknown): StreamCallbackMatch {
-  const r = requireObject(raw, "StreamCallbackMatch");
+  const r = asObjectLenient(raw);
   const radioId = asNumber(r.radio_id);
   const resultsRaw = Array.isArray(r.results) ? r.results : [];
   const songs = resultsRaw
@@ -563,7 +569,7 @@ const STREAM_CALLBACK_NOTIFICATION_KEYS = [
 ] as const;
 
 export function parseStreamCallbackNotification(raw: unknown): StreamCallbackNotification {
-  const r = requireObject(raw, "StreamCallbackNotification");
+  const r = asObjectLenient(raw);
   const radioId = asNumber(r.radio_id);
   const code = asNumber(r.notification_code);
   const message = asString(r.notification_message);
@@ -602,7 +608,7 @@ const LYRICS_KEYS = [
 ] as const;
 
 export function parseLyricsResult(raw: unknown): LyricsResult {
-  const r = requireObject(raw, "LyricsResult");
+  const r = asObjectLenient(raw);
   const artist = asString(r.artist);
   const title = asString(r.title);
   return {
