@@ -53,7 +53,7 @@ found no match — distinct from an error, which throws.
 Pass the token literally:
 
 ```ts
-const audd = new AudD("012345...");
+const audd = new AudD("your-api-token");
 ```
 
 Or set `AUDD_API_TOKEN` in the environment and construct without
