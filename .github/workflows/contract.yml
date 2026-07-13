@@ -39,3 +39,48 @@ jobs:
         env:
           AUDD_OPENAPI_FIXTURES: ${{ github.workspace }}/audd-openapi/fixtures
         run: npx vitest run test/contract.test.ts
+      - name: Report drift issue
+        if: failure() && github.event_name != 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'contract-drift'
+            });
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            if (open.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: open[0].number,
+                body: `Still failing against the latest audd-openapi spec.\n\nRun: ${runUrl}`
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title: `contract drift detected (${context.workflow})`,
+                body: `Contract tests failed against the latest audd-openapi spec.\n\nRun: ${runUrl}`,
+                labels: ['contract-drift']
+              });
+            }
+      - name: Close drift issue on recovery
+        if: success() && github.event_name != 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: 'contract-drift'
+            });
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            for (const issue of open) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `Contract tests are passing again — closing.\n\nRun: ${runUrl}`
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number, state: 'closed'
+              });
+            }
