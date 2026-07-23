@@ -104,7 +104,7 @@ console.log(song?.spotify?.uri);      // spotify:track:...
 console.log(song?.previewUrl());      // first preview across requested providers, or null
 ```
 
-Valid `returnMetadata` values: `apple_music`, `spotify`, `deezer`, `napster`,
+Valid `returnMetadata` values: `apple_music`, `spotify`, `deezer`,
 `musicbrainz`. Blocks are `undefined` when not requested.
 
 `streamingUrl(provider)` prefers the direct provider URL when you
