@@ -50,8 +50,8 @@ export class CustomCatalog {
 
   /**
    * **This is NOT how you submit audio for music recognition.** For
-   * recognition, use `audd.recognize()` (or `audd.recognizeEnterprise()` for
-   * files longer than 25 seconds). This method adds a song to your
+   * recognition, use `audd.recognize()` (or `audd.recognizeEnterprise()` to scan
+   * beyond the first 12 seconds of a file). This method adds a song to your
    * **private fingerprint catalog** so AudD's recognition can later identify
    * *your own* tracks for *your account only*. Requires special access —
    * contact api@audd.io if you need it enabled.

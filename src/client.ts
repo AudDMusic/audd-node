@@ -338,7 +338,8 @@ export class AudD {
   }
 
   /**
-   * Recognize a short audio clip (≤25s) from a URL, file path, Blob, or bytes.
+   * Recognize a song from an audio clip given as a URL, file path, Blob, or
+   * bytes; only the first 12 seconds are analyzed.
    *
    * Returns `null` when the server returns `status=success` with `result=null`
    * (no match) — distinct from a thrown error.

@@ -135,8 +135,8 @@ The same `extraParameters` field is on `RecognizeEnterpriseOptions`, `SetCallbac
 
 ## Long files (enterprise)
 
-`recognizeEnterprise` accepts files up to several hours and returns a
-flat array of matches:
+`recognizeEnterprise` scans the whole file and returns a flat array of
+matches:
 
 ```ts
 const matches = await audd.recognizeEnterprise("./show.mp3", { limit: 20 });
