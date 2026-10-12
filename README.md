@@ -147,7 +147,8 @@ for (const m of matches) {
 ```
 
 `EnterpriseMatch` carries the same core tags plus `score`, `startSeconds`,
-`endSeconds`, `startOffset`, `endOffset`, `isrc`, `upc`. `startSeconds` and
+`endSeconds`, `startOffset`, `endOffset`, `isrc`, `upc`, and `audioId` for
+custom-catalog matches. `startSeconds` and
 `endSeconds` are where this song plays in your file, in seconds (e.g. 64.2 to
 71.8) — feed straight to a player or ffmpeg; computed while parsing the chunked
 response, and `recognizeEnterprise` requests accurate offsets by default so
@@ -418,6 +419,17 @@ await audd.customCatalog.add({
   audioId: 42,
   source: "https://example.com/my-track.mp3",
 });
+```
+
+When a later `recognize()` or `recognizeEnterprise()` call matches one of
+your songs, the match carries the same `audioId` and `isCustomMatch` is
+`true`:
+
+```ts
+const result = await audd.recognize("https://example.com/recording.mp3");
+if (result?.isCustomMatch) {
+  console.log(result.audioId); // 42
+}
 ```
 
 A raw-request escape hatch is available under `audd.advanced.rawRequest`

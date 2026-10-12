@@ -339,6 +339,8 @@ export function parseRecognitionResult(raw: unknown): RecognitionResult {
 export interface EnterpriseMatch {
   score?: number | undefined;
   timecode?: string | undefined;
+  /** Set on custom-catalog matches: the `audioId` you passed to `customCatalog.add`. */
+  audioId?: number | undefined;
   artist?: string | undefined;
   title?: string | undefined;
   album?: string | undefined;
@@ -358,6 +360,10 @@ export interface EnterpriseMatch {
   endSeconds?: number | undefined;
   extras: Record<string, unknown>;
   rawResponse: Record<string, unknown>;
+  /** True when `audioId` is set (custom-catalog match). */
+  readonly isCustomMatch: boolean;
+  /** True when `audioId` is unset and `artist` or `title` are present. */
+  readonly isPublicMatch: boolean;
   readonly thumbnailUrl: string | null;
   /** lis.tn redirect URL for the given streaming provider, or null if `songLink` is non-lis.tn. */
   streamingUrl(provider: StreamingProvider): string | null;
@@ -368,6 +374,7 @@ export interface EnterpriseMatch {
 const ENTERPRISE_MATCH_KEYS = [
   "score",
   "timecode",
+  "audio_id",
   "artist",
   "title",
   "album",
@@ -386,12 +393,16 @@ export function parseEnterpriseMatch(raw: unknown): EnterpriseMatch {
   const r = asObjectLenient(raw);
   const score = asNumber(r.score);
   const timecode = asString(r.timecode);
+  const audioId = asInteger(r.audio_id);
+  const artist = asString(r.artist);
+  const title = asString(r.title);
   const songLink = asString(r.song_link);
   return {
     score,
     timecode,
-    artist: asString(r.artist),
-    title: asString(r.title),
+    audioId,
+    artist,
+    title,
     album: asString(r.album),
     releaseDate: asString(r.release_date),
     label: asString(r.label),
@@ -404,6 +415,12 @@ export function parseEnterpriseMatch(raw: unknown): EnterpriseMatch {
     endSeconds: undefined,
     extras: pickExtras(r, ENTERPRISE_MATCH_KEYS),
     rawResponse: r,
+    get isCustomMatch() {
+      return audioId !== undefined;
+    },
+    get isPublicMatch() {
+      return audioId === undefined && (artist !== undefined || title !== undefined);
+    },
     streamingUrl(provider: StreamingProvider): string | null {
       if (!STREAMING_PROVIDERS.includes(provider)) {
         throw new TypeError(`Unknown streaming provider: ${String(provider)}`);

@@ -161,6 +161,17 @@ describe("models — EnterpriseMatch", () => {
     expect(m.isrc).toBe("GBUM71403885");
     expect(m.upc).toBe("00602547037169");
     expect(m.thumbnailUrl).toBe("https://lis.tn/NbkVb?thumb");
+    expect(m.audioId).toBeUndefined();
+    expect(m.isPublicMatch).toBe(true);
+    expect(m.isCustomMatch).toBe(false);
+  });
+
+  it("parses a custom-catalog match (audio_id, no artist)", () => {
+    const m = parseEnterpriseMatch({ score: 100, timecode: "01:45", audio_id: 146 });
+    expect(m.audioId).toBe(146);
+    expect(m.isCustomMatch).toBe(true);
+    expect(m.isPublicMatch).toBe(false);
+    expect(m.extras).toEqual({});
   });
 
   it("extras pass through", () => {

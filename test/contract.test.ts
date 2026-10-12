@@ -101,6 +101,25 @@ describe.skipIf(!fixturesAvailable)("contract: enterprise_with_isrc_upc.json", (
     expect(song?.score).toBe(81);
     expect(song?.isrc).toBe("GBUM71403885");
     expect(song?.upc).toBe("00602547037169");
+    expect(song?.audioId).toBeUndefined();
+    expect(song?.isPublicMatch).toBe(true);
+    expect(song?.isCustomMatch).toBe(false);
+  });
+});
+
+describe.skipIf(!fixturesAvailable)("contract: enterprise_custom_match.json", () => {
+  it("parses enterprise custom-catalog match (audio_id, no artist/title)", () => {
+    const fixture = loadFixture("enterprise_custom_match.json") as {
+      result: unknown[];
+    };
+    const chunk = parseEnterpriseChunkResult(fixture.result[0]);
+    expect(chunk.songs).toHaveLength(1);
+    const song = chunk.songs[0];
+    expect(song?.audioId).toBe(146);
+    expect(song?.isCustomMatch).toBe(true);
+    expect(song?.isPublicMatch).toBe(false);
+    expect(song?.artist).toBeUndefined();
+    expect(song?.extras).toEqual({});
   });
 });
 

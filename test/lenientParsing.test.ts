@@ -150,6 +150,9 @@ describe("lenient parsing — scalar coercion", () => {
   describe("wrong-typed → integer (id/count/offset/timestamp fields)", () => {
     it("parses a numeric string for an integer-typed field", () => {
       expect(parseStream({ radio_id: "7" }).radioId).toBe(7);
+      expect(parseEnterpriseMatch({ audio_id: "146" }).audioId).toBe(146);
+      expect(parseEnterpriseMatch({ audio_id: "146" }).isCustomMatch).toBe(true);
+      expect(parseEnterpriseMatch({ audio_id: "abc" }).audioId).toBeUndefined();
     });
 
     it("truncates floats toward zero for integer-typed fields", () => {
@@ -157,6 +160,7 @@ describe("lenient parsing — scalar coercion", () => {
       expect(parseStream({ radio_id: -7.9 }).radioId).toBe(-7);
       expect(parseStream({ radio_id: "7.9" }).radioId).toBe(7);
       expect(parseRecognitionResult({ audio_id: 146.99 }).audioId).toBe(146);
+      expect(parseEnterpriseMatch({ audio_id: 146.99 }).audioId).toBe(146);
     });
 
     it("maps booleans to 0/1", () => {
