@@ -92,6 +92,25 @@ export class AudDConnectionError extends AudDError {
 }
 
 /**
+ * Message for a transport failure thrown by `fetch`. `fetch` reports every
+ * failure as `TypeError: fetch failed`; the underlying reason (DNS, refused
+ * connection, TLS, socket reset, undici timeout) lives on `err.cause`, so the
+ * message carries the cause's code and text.
+ */
+export function networkErrorMessage(err: Error): string {
+  const cause = (err as { cause?: unknown }).cause;
+  let detail = "";
+  if (cause !== null && typeof cause === "object") {
+    const c = cause as { code?: unknown; message?: unknown };
+    const code = typeof c.code === "string" ? c.code : "";
+    const text = typeof c.message === "string" ? c.message : "";
+    if (code !== "" && text !== "" && !text.includes(code)) detail = `${code}: ${text}`;
+    else detail = text !== "" ? text : code;
+  }
+  return detail === "" ? `Network error: ${err.message}` : `Network error: ${err.message} (${detail})`;
+}
+
+/**
  * Internal marker for aborts triggered by the caller's own AbortSignal —
  * distinguishes user cancellation from the SDK's own timeout abort. Never
  * retried; surfaced as an {@link AudDConnectionError} with a cancellation

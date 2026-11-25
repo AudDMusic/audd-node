@@ -60,10 +60,9 @@ export class CustomCatalog {
    * There is no public list/delete endpoint; track `audioId` ↔ song
    * mappings on your side.
    *
-   * **No automatic retry.** Custom-catalog upload is metered, and a transport
-   * failure could otherwise cause a silent re-upload that double-charges. Any
-   * 5xx or pre-upload connection error surfaces as a clean exception — the
-   * caller decides whether to retry.
+   * **No automatic retry.** The upload is sent once. Any 5xx or connection
+   * error surfaces as an exception: check it before sending the upload again
+   * (an upload to an `audioId` that already holds a song replaces it).
    */
   async add(opts: CustomCatalogAddOptions): Promise<void> {
     const reopen = prepareSource(opts.source);

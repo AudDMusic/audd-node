@@ -59,7 +59,13 @@ export interface AudDOptions {
   maxRetries?: number;
   /** Initial backoff in ms (default 500), jittered, exponential. */
   backoffFactorMs?: number;
-  /** Custom fetch (e.g., for proxy/mTLS). */
+  /**
+   * Custom fetch (e.g., for proxy/mTLS). It replaces the SDK's transport
+   * entirely: on Node, the built-in fetch gives up after 300 s without
+   * response headers unless its dispatcher allows longer, so give long
+   * enterprise calls an undici dispatcher with `headersTimeout: 0` and
+   * `bodyTimeout: 0`.
+   */
   fetch?: FetchLike;
   /** Inspection hook (see {@link AudDEvent}). Off by default. */
   onEvent?: OnEventHook;
@@ -94,13 +100,26 @@ export interface RecognizeOptions {
 
 export interface RecognizeEnterpriseOptions {
   returnMetadata?: ReturnMetadata | ReturnMetadata[];
+  /**
+   * The file is scanned in 12-second chunks: `every` chunks in a row, then
+   * `skip` chunks skipped, and so on. `skip: 4, every: 1` scans 12 s out of
+   * every 60 s.
+   */
   skip?: number;
+  /** How many 12-second chunks are scanned in a row before `skip` chunks are skipped. */
   every?: number;
+  /** Upper bound on the number of chunks the server scans. Set it while developing. */
   limit?: number;
+  /** Seconds to skip at the start of the file before scanning. Don't combine with `useTimecode`. */
   skipFirstSeconds?: number;
+  /**
+   * Use the time in the URL's `t`, `time_continue` or `start` parameter as
+   * `skipFirstSeconds`. Don't combine with `skipFirstSeconds`.
+   */
   useTimecode?: boolean;
   /** Request precise within-fragment offsets. Defaults to `true`; pass `false` to opt out. */
   accurateOffsets?: boolean;
+  /** Per-call timeout in ms (default 1 hour). */
   timeoutMs?: number;
   /**
    * User-supplied AbortSignal for cancellation. See {@link RecognizeOptions.signal}.
@@ -321,8 +340,8 @@ export class AudD {
   /** Sub-namespace for the private fingerprint catalog. NOT for recognition. */
   get customCatalog(): CustomCatalog {
     if (this._customCatalog === undefined) {
-      // "none" — custom-catalog upload is metered; never retry on transport
-      // failure (could double-charge). Surface a clean error instead.
+      // "none": the upload is sent once and never retried automatically;
+      // the caller checks the error before sending it again.
       this._customCatalog = new CustomCatalog(this._http, this.policyFor("none"), this._onEvent);
     }
     return this._customCatalog;
@@ -373,7 +392,8 @@ export class AudD {
    * Enterprise recognition (long files). Returns a flat array of matches
    * across all chunks in the upstream response.
    *
-   * Recommended: pass `limit: N` to cap result count when developing.
+   * Pass `limit` while developing: it caps how many 12-second chunks are
+   * scanned, and each scanned chunk counts as a request.
    */
   async recognizeEnterprise(
     source: Source,

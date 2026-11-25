@@ -1,4 +1,4 @@
-import { AudDConnectionError, isUserAbortError } from "./errors.js";
+import { AudDConnectionError, isUserAbortError, networkErrorMessage } from "./errors.js";
 import type { HttpResponse } from "./http.js";
 
 /**
@@ -12,10 +12,10 @@ import type { HttpResponse } from "./http.js";
  * - MUTATING    — `streams.add`, `streams.delete`, etc.:
  *                 retry only on pre-upload connection failures. DO NOT retry
  *                 5xx (the side effect may have happened).
- * - NONE        — `customCatalog.add`: never retry. Custom-catalog upload is
- *                 metered; auto-retry on transport failure could double-charge
- *                 for the same audio fingerprinting. Surface a clean error and
- *                 let the caller decide.
+ * - NONE        — `customCatalog.add`: sent once, never retried
+ *                 automatically. The caller checks the error before sending
+ *                 it again (an upload to an `audio_id` that already holds a
+ *                 song replaces it).
  */
 export type RetryClass = "read" | "recognition" | "mutating" | "none";
 
@@ -97,7 +97,7 @@ function shouldRetryError(err: unknown, retryClass: RetryClass): boolean {
       // Pre-upload only — server-side side-effect may have happened.
       return isPreUploadConnectionError(err);
     case "none":
-      // Metered upload — never retry on transport failure (could double-charge).
+      // customCatalog.add: sent once; the caller decides whether to resend.
       return false;
   }
 }
@@ -110,10 +110,12 @@ export async function retry<T extends HttpResponse>(
   fn: () => Promise<T>,
   policy: RetryPolicy,
 ): Promise<T> {
+  // Every call makes at least one attempt, whatever `maxRetries` says.
+  const maxAttempts = Math.max(1, Math.trunc(policy.maxAttempts) || 1);
   let lastError: unknown;
   let lastResp: T | undefined;
   let haveResp = false;
-  for (let attempt = 0; attempt < policy.maxAttempts; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const resp = await fn();
       if (!shouldRetryResponse(resp, policy.retryClass)) return resp;
@@ -124,9 +126,9 @@ export async function retry<T extends HttpResponse>(
       if (!shouldRetryError(err, policy.retryClass)) throw err;
       lastError = err;
       haveResp = false;
-      if (attempt + 1 >= policy.maxAttempts) throw err;
+      if (attempt + 1 >= maxAttempts) throw err;
     }
-    if (attempt + 1 >= policy.maxAttempts) break;
+    if (attempt + 1 >= maxAttempts) break;
     await sleep(backoffDelayMs(attempt, policy));
   }
   if (haveResp && lastResp !== undefined) return lastResp;
@@ -153,7 +155,7 @@ export async function runRetried<T extends HttpResponse>(
       throw new AudDConnectionError("Request was cancelled by the caller's AbortSignal", err);
     }
     if (err instanceof TypeError) {
-      throw new AudDConnectionError(`Network error: ${err.message}`, err);
+      throw new AudDConnectionError(networkErrorMessage(err), err);
     }
     if (err !== null && typeof err === "object" && (err as { name?: string }).name === "AbortError") {
       throw new AudDConnectionError("Request was aborted (timeout)", err);

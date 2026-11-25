@@ -79,7 +79,7 @@ describe("customCatalog.add", () => {
     expect(docstring.length).toBeGreaterThan(0);
   });
 
-  it("does NOT retry on transient 5xx (metered upload — no double-charge)", async () => {
+  it("does NOT retry on transient 5xx (sent once; the caller decides)", async () => {
     let calls = 0;
     const fetchImpl = mockFetch(() => {
       calls++;

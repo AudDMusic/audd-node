@@ -72,33 +72,35 @@ describe("HttpClient", () => {
     expect(captured).toMatch(/^audd-node\//);
   });
 
-  it("get adds api_token query param", async () => {
-    let capturedUrl = "";
+  it("get sends the query parameters and no api_token", async () => {
+    let captured: Request | undefined;
     const fetchImpl = mockFetch((req) => {
-      capturedUrl = req.url;
+      captured = req;
       return new Response('{"timeout":"no events"}');
     });
     await new HttpClient({ apiToken: "tk-1", fetch: fetchImpl }).get(
       "https://api.audd.io/longpoll/",
       { category: "abc", timeout: "30" },
     );
-    expect(capturedUrl).toContain("api_token=tk-1");
-    expect(capturedUrl).toContain("category=abc");
-    expect(capturedUrl).toContain("timeout=30");
+    const url = new URL(captured?.url ?? "");
+    expect(url.searchParams.get("category")).toBe("abc");
+    expect(url.searchParams.get("timeout")).toBe("30");
+    expect(url.searchParams.has("api_token")).toBe(false);
+    expect(captured?.url).not.toContain("tk-1");
+    for (const [, value] of captured?.headers ?? []) expect(value).not.toContain("tk-1");
   });
 
-  it("get does not overwrite api_token if URL already has it", async () => {
+  it("get keeps query parameters already on the URL", async () => {
     let capturedUrl = "";
     const fetchImpl = mockFetch((req) => {
       capturedUrl = req.url;
       return new Response("{}");
     });
     await new HttpClient({ apiToken: "tk-default", fetch: fetchImpl }).get(
-      "https://api.audd.io/longpoll/?api_token=tk-override",
-      {},
+      "https://api.audd.io/longpoll/?category=xyz",
+      { timeout: "5" },
     );
-    expect(capturedUrl).toContain("api_token=tk-override");
-    expect(capturedUrl).not.toContain("api_token=tk-default");
+    expect(capturedUrl).toBe("https://api.audd.io/longpoll/?category=xyz&timeout=5");
   });
 
   it("returns null jsonBody on non-JSON response", async () => {

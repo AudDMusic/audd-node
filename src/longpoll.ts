@@ -7,15 +7,19 @@
  * token).
  *
  * Behavior:
- * - HTTP non-2xx → terminal {@link AudDServerError} on the `errors` iterable
- *   (no silent infinite loop).
- * - JSON decode failure on 2xx → terminal {@link AudDSerializationError}.
- * - READ-class retries on 5xx + connection failures, configurable via
- *   `maxRetries` / `backoffFactorMs`.
+ * - Events arrive on `matches` / `notifications` in server order; each
+ *   request sends the newest event timestamp as `since_time`.
+ * - Connection failures, HTTP 408/429 and 5xx are retried with backoff,
+ *   configurable via `maxRetries` / `backoffFactorMs`.
+ * - HTTP 4xx, a failure that outlasts the retries, or an error body from
+ *   the server (an {@link AudDInvalidRequestError} carrying its text) stops
+ *   the poll and arrives once on the `errors` iterable.
+ * - A 2xx response it can't read (empty, non-JSON, unknown shape) delays the
+ *   next request: 1 s, doubling up to 30 s.
  * - `[Symbol.asyncDispose]()` + manual `close()` for resource cleanup.
  *
- * Imported from `audd/longpoll` (browser-safe sub-entry, NOT the main
- * `audd` module — bundlers tree-shake the auth client out).
+ * Imported from `@audd/sdk/longpoll` (browser-safe sub-entry, NOT the main
+ * `@audd/sdk` module — bundlers tree-shake the auth client out).
  */
 
 import { userAbortError } from "./errors.js";
@@ -41,22 +45,37 @@ export interface LongpollConsumerOptions {
 }
 
 export interface IterateOptions {
+  /** Server timestamp (ms) to resume from: only newer events are delivered. */
   sinceTime?: number;
-  /** Server-side timeout in seconds (default 50). */
+  /** Seconds the server holds each request open waiting for events, 1 to 120 (default 50). */
   timeout?: number;
+}
+
+/**
+ * `User-Agent` is set on Node only. A browser that lets scripts set it
+ * would turn every request into a CORS preflight the endpoint doesn't allow.
+ */
+function requestHeaders(): Record<string, string> {
+  const isNode =
+    typeof process !== "undefined" &&
+    process.versions !== undefined &&
+    typeof process.versions.node === "string";
+  return isNode ? { "User-Agent": userAgent() } : {};
 }
 
 /**
  * Tokenless longpoll consumer.
  *
  * ```ts
- * import { LongpollConsumer } from 'audd/longpoll';
+ * import { LongpollConsumer } from "@audd/sdk/longpoll";
  *
  * const consumer = new LongpollConsumer("abc123def");
  * const poll = consumer.iterate({ timeout: 30 });
  * for await (const m of poll.matches) {
  *   console.log(m.song?.artist ?? "?", m.song?.title ?? "?");
  * }
+ * // `matches` ends when the poll stops; if an error stopped it, `errors` has it.
+ * for await (const err of poll.errors) throw err;
  * ```
  *
  * Or iterate matches and notifications concurrently:
@@ -97,7 +116,7 @@ export class LongpollConsumer {
       }
       const response = await fetchImpl(u.toString(), {
         method: "GET",
-        headers: { "User-Agent": userAgent() },
+        headers: requestHeaders(),
         signal,
       });
       const text = await response.text();

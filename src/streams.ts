@@ -53,8 +53,9 @@ export interface AddStreamOptions {
 }
 
 export interface LongpollOptions {
+  /** Server timestamp (ms) to resume from: only newer events are delivered. */
   sinceTime?: number;
-  /** Server-side timeout in seconds (default 50). */
+  /** Seconds the server holds each request open waiting for events, 1 to 120 (default 50). */
   timeout?: number;
   /** Bypass the default-on `getCallbackUrl` preflight. */
   skipCallbackCheck?: boolean;
@@ -215,6 +216,7 @@ export class Streams {
    * Returns a {@link LongpollPoll} handle with three async-iterables —
    * `matches`, `notifications`, `errors` — that are filled by a background
    * loop. Iterate them independently or in parallel via `Promise.all([...])`.
+   * Longpoll requests carry no api_token: the category authorizes them.
    *
    * Before the first request the SDK runs a one-time `getCallbackUrl`
    * preflight: AudD silently discards events for accounts that haven't set a
@@ -271,7 +273,7 @@ export class Streams {
     const onEvent = this.onEvent;
     const longpollUrl = `${API_BASE}/longpoll/`;
     // The HTTP timeout must outlast the server-side poll window, whatever
-    // `timeout` the caller picked.
+    // `timeout` the caller picked. `get` sends no api_token.
     const timeoutMs = (timeoutSec + LONGPOLL_TIMEOUT_MARGIN_SEC) * 1000;
     return startLongpoll({
       category,

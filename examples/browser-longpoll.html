@@ -18,7 +18,7 @@
 
     <p>
       Demonstrates the tokenless <code>LongpollConsumer</code> from
-      <code>audd/longpoll</code> — browser-safe, carries no API token. Your
+      <code>@audd/sdk/longpoll</code> — browser-safe, carries no API token. Your
       server should derive the category server-side via
       <code>audd.streams.deriveLongpollCategory(radioId)</code> and ship it
       to the browser.
@@ -39,14 +39,16 @@
 
     <h2>Boilerplate (paste into your bundler)</h2>
     <pre><code>// import via your bundler so this stays browser-safe (no API token):
-import { LongpollConsumer } from "audd/longpoll";
+import { LongpollConsumer } from "@audd/sdk/longpoll";
 
 const consumer = new LongpollConsumer("e31a31e76");
 const poll = consumer.iterate({ timeout: 30 });
 for await (const m of poll.matches) {
   console.log(m.song?.artist ?? "?", m.song?.title ?? "?");
 }
-// notifications and errors are also iterables on `poll`</code></pre>
+// `matches` ends when the poll stops; if an error stopped it, `errors` has it.
+for await (const err of poll.errors) throw err;
+// `poll.notifications` carries stream notifications the same way</code></pre>
 
     <p>
       In an actual app you'd build this with esbuild/vite/rollup. This page

@@ -11,7 +11,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AudD } from "../src/client.js";
 import {
   AudDAuthenticationError,
@@ -21,6 +21,7 @@ import {
   AudDSubscriptionError,
 } from "../src/errors.js";
 import { parseCallback } from "../src/helpers.js";
+import { LongpollConsumer } from "../src/longpoll.js";
 import {
   parseEnterpriseChunkResult,
   parseRecognitionResult,
@@ -38,6 +39,11 @@ function resolveFixturesDir(): string | null {
 
 const FIXTURES_DIR = resolveFixturesDir();
 const fixturesAvailable = FIXTURES_DIR !== null;
+
+/** Per-file check, for fixtures newer than some audd-openapi checkouts. */
+function fixtureExists(name: string): boolean {
+  return FIXTURES_DIR !== null && existsSync(join(FIXTURES_DIR, name));
+}
 
 function loadFixture(name: string): unknown {
   if (FIXTURES_DIR === null) {
@@ -159,6 +165,67 @@ describe.skipIf(!fixturesAvailable)("contract: longpoll_no_events.json", () => {
     const fixture = loadFixture("longpoll_no_events.json") as Record<string, unknown>;
     expect(typeof fixture["timeout"]).toBe("string");
     expect(typeof fixture["timestamp"]).toBe("number");
+  });
+});
+
+/**
+ * Serve `body` to the first longpoll request; hold later requests open until
+ * the poll is closed. Records every request URL.
+ */
+function longpollServing(body: unknown) {
+  const urls: URL[] = [];
+  const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    urls.push(new URL(input instanceof Request ? input.url : String(input)));
+    if (urls.length === 1) return new Response(JSON.stringify(body));
+    return new Promise<Response>((_, reject) => {
+      init?.signal?.addEventListener("abort", () => {
+        const err = new Error("aborted");
+        err.name = "AbortError";
+        reject(err);
+      });
+    });
+  }) as unknown as typeof globalThis.fetch;
+  return { fetchImpl, urls };
+}
+
+describe.skipIf(!fixtureExists("longpoll_events.json"))("contract: longpoll_events.json", () => {
+  it("delivers every event's song in order and resumes from the newest timestamp", async () => {
+    const fixture = loadFixture("longpoll_events.json") as {
+      events: {
+        timestamp: number;
+        data: { result: { radio_id: number; results: { artist: string; title: string }[] } };
+      }[];
+    };
+    const { fetchImpl, urls } = longpollServing(fixture);
+    const poll = new LongpollConsumer("abc123def", { fetch: fetchImpl }).iterate();
+    try {
+      const it = poll.matches[Symbol.asyncIterator]();
+      for (const event of fixture.events) {
+        const r = await it.next();
+        expect(r.done).toBe(false);
+        expect(r.value?.radioId).toBe(event.data.result.radio_id);
+        expect(r.value?.song?.artist).toBe(event.data.result.results[0]?.artist);
+        expect(r.value?.song?.title).toBe(event.data.result.results[0]?.title);
+      }
+      await vi.waitFor(() => expect(urls.length).toBe(2));
+      const newest = Math.max(...fixture.events.map((e) => e.timestamp));
+      expect(urls[1]?.searchParams.get("since_time")).toBe(String(newest));
+    } finally {
+      poll.close();
+    }
+  });
+});
+
+describe.skipIf(!fixtureExists("longpoll_error.json"))("contract: longpoll_error.json", () => {
+  it("stops the poll with AudDInvalidRequestError carrying the server's text", async () => {
+    const fixture = loadFixture("longpoll_error.json") as { error: string };
+    const { fetchImpl, urls } = longpollServing(fixture);
+    const poll = new LongpollConsumer("abc123def", { fetch: fetchImpl }).iterate({ timeout: 180 });
+    const r = await poll.errors[Symbol.asyncIterator]().next();
+    expect(r.value).toBeInstanceOf(AudDInvalidRequestError);
+    expect((r.value as AudDInvalidRequestError).serverMessage).toBe(fixture.error);
+    expect(urls).toHaveLength(1);
+    poll.close();
   });
 });
 

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { AudD } from "../src/client.js";
+import { AudDConnectionError } from "../src/errors.js";
 import type { HttpResponse } from "../src/http.js";
 import { retry } from "../src/retry.js";
 
@@ -154,7 +156,7 @@ describe("retry policy", () => {
     expect(c.attempts()).toBe(1);
   });
 
-  it("none does NOT retry 5xx (metered upload — no double-charge)", async () => {
+  it("none does NOT retry 5xx", async () => {
     const c = counter<HttpResponse>([err(503), ok()]);
     const r = await retry(c.fn, {
       retryClass: "none",
@@ -189,5 +191,29 @@ describe("retry policy", () => {
     });
     expect(r.httpStatus).toBe(200);
     expect(c.attempts()).toBe(1);
+  });
+
+  it("maxAttempts 0 makes one attempt and returns its response", async () => {
+    const c = counter<HttpResponse>([err(503), ok()]);
+    const r = await retry(c.fn, {
+      retryClass: "read",
+      maxAttempts: 0,
+      backoffFactorMs: 0,
+      backoffMaxMs: 0,
+    });
+    expect(r.httpStatus).toBe(503);
+    expect(c.attempts()).toBe(1);
+  });
+
+  it("maxRetries: 0 surfaces the real error, not undefined", async () => {
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      throw new TypeError("fetch failed");
+    }) as unknown as typeof globalThis.fetch;
+    const audd = new AudD({ apiToken: "t", fetch: fetchImpl, maxRetries: 0 });
+    const caught = await audd.streams.list().catch((e: unknown) => e);
+    expect(caught).toBeInstanceOf(AudDConnectionError);
+    expect(calls).toBe(1);
   });
 });

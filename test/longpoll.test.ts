@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   AudDConnectionError,
-  AudDSerializationError,
   AudDServerError,
 } from "../src/errors.js";
 import { LongpollConsumer } from "../src/longpoll.js";
@@ -94,15 +93,28 @@ describe("LongpollConsumer", () => {
     expect(r.value).toBeInstanceOf(AudDServerError);
   });
 
-  it("2xx with non-object JSON pushes AudDSerializationError", async () => {
-    const fetchImpl = makeFetch([
-      () => new Response(JSON.stringify(["not", "an", "object"]), { status: 200 }),
-    ]);
-    const c = new LongpollConsumer("abc", { fetch: fetchImpl });
-    const poll = c.iterate();
-    const r = await poll.errors[Symbol.asyncIterator]().next();
-    poll.close();
-    expect(r.value).toBeInstanceOf(AudDSerializationError);
+  it("2xx with non-object JSON is skipped: the poll waits and carries on", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = makeFetch([
+        () => new Response(JSON.stringify(["not", "an", "object"]), { status: 200 }),
+        () =>
+          new Response(
+            JSON.stringify({
+              result: { radio_id: 7, timestamp: "x", results: [{ artist: "A", title: "T" }] },
+            }),
+          ),
+      ]);
+      const c = new LongpollConsumer("abc", { fetch: fetchImpl });
+      const poll = c.iterate();
+      const next = poll.matches[Symbol.asyncIterator]().next();
+      await vi.advanceTimersByTimeAsync(1_000);
+      const r = await next;
+      poll.close();
+      expect(r.value.song.artist).toBe("A");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("retries 5xx (configurable maxRetries)", async () => {
@@ -204,5 +216,36 @@ describe("LongpollConsumer", () => {
     expect(m.done).toBe(true);
     expect(n.done).toBe(true);
     expect(e.done).toBe(true);
+  });
+
+  it("sends User-Agent on Node", async () => {
+    const seen: (HeadersInit | undefined)[] = [];
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(init?.headers);
+      return new Promise<Response>(() => undefined);
+    }) as unknown as typeof globalThis.fetch;
+    const poll = new LongpollConsumer("abc", { fetch: fetchImpl }).iterate();
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    poll.close();
+    expect(new Headers(seen[0]).get("user-agent")).toMatch(/^audd-node\//);
+  });
+
+  it("sends no User-Agent outside Node, so browsers make a simple CORS request", async () => {
+    const versions = Object.getOwnPropertyDescriptor(process, "versions");
+    if (versions === undefined) throw new Error("process.versions missing");
+    const seen: (HeadersInit | undefined)[] = [];
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(init?.headers);
+      return new Promise<Response>(() => undefined);
+    }) as unknown as typeof globalThis.fetch;
+    Object.defineProperty(process, "versions", { ...versions, value: {} });
+    try {
+      const poll = new LongpollConsumer("abc", { fetch: fetchImpl }).iterate();
+      await vi.waitFor(() => expect(seen).toHaveLength(1));
+      poll.close();
+    } finally {
+      Object.defineProperty(process, "versions", versions);
+    }
+    expect([...new Headers(seen[0]).keys()]).toEqual([]);
   });
 });

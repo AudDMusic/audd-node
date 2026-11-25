@@ -219,6 +219,12 @@ const audd = new AudD("...token...", {
 });
 ```
 
+A custom `fetch` replaces the SDK's transport. On Node, the built-in
+`fetch` stops waiting for a response after 5 minutes unless its undici
+dispatcher allows longer. The SDK's default transport gives enterprise
+calls their full timeout; a custom `fetch` that makes enterprise calls
+needs a dispatcher created with `headersTimeout: 0` and `bodyTimeout: 0`.
+
 Per-call cancellation via `AbortSignal`, including for multi-hour
 enterprise calls:
 
@@ -362,7 +368,18 @@ const poll = await audd.streams.longpoll({ radioId, timeout: 30 });
 for await (const m of poll.matches) {
   console.log(m.song?.artist ?? "?", m.song?.title ?? "?");
 }
+// `matches` ends when the poll stops; if an error stopped it, `errors` has it.
+for await (const err of poll.errors) throw err;
 ```
+
+`timeout` is how long the server holds each request open waiting for
+events: 1 to 120 seconds, 50 by default. Each request picks up after the
+newest event already delivered, so every event arrives once. Network
+failures and HTTP 5xx are retried with backoff, up to `maxRetries`. An
+HTTP 4xx, a failure that outlasts the retries, or a request the server
+rejects (such as an out-of-range `timeout`, which arrives as
+`AudDInvalidRequestError`) stops the poll and lands on `errors`.
+Longpoll requests carry no API token: the category authorizes them.
 
 Consume matches and notifications concurrently:
 
@@ -392,7 +409,7 @@ down the background loop and completes all three iterables.
 
 ### Browser / widget consumers
 
-The `audd/longpoll` sub-entry exports a tokenless `LongpollConsumer` for
+The `@audd/sdk/longpoll` sub-entry exports a tokenless `LongpollConsumer` for
 front-end use. It carries no api_token — your server derives the
 category and ships it to the browser. Bundlers tree-shake the auth
 client out of the resulting bundle.
@@ -405,6 +422,7 @@ const poll = consumer.iterate({ timeout: 30 });
 for await (const m of poll.matches) {
   console.log(m.song?.artist ?? "?", m.song?.title ?? "?");
 }
+for await (const err of poll.errors) throw err;
 ```
 
 ## Custom catalog (advanced — not for music recognition)

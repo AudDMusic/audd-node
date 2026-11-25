@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { AudD } from "../src/client.js";
-import { AudDInvalidRequestError, AudDSerializationError } from "../src/errors.js";
+import { AudDInvalidRequestError } from "../src/errors.js";
 import { DuplicateReturnParameterError } from "../src/helpers.js";
 
 function makeFetch(handlers: ((req: Request) => Response | Promise<Response>)[]) {
@@ -193,19 +193,30 @@ describe("streams.longpoll preflight", () => {
     expect(longpollCalls).toBeGreaterThanOrEqual(1);
   });
 
-  it("malformed longpoll JSON pushes AudDSerializationError onto errors", async () => {
-    const fetchImpl = makeFetch([
-      () =>
-        new Response(JSON.stringify({ status: "success", result: "https://x/cb" })),
-      () => new Response(JSON.stringify(["not", "an", "object"])),
-    ]);
-    const audd = new AudD({ apiToken: "tk", fetch: fetchImpl });
-    const poll = await audd.streams.longpoll("abc");
-    const it = poll.errors[Symbol.asyncIterator]();
-    const r = await it.next();
-    poll.close();
-    expect(r.done).toBe(false);
-    expect(r.value).toBeInstanceOf(AudDSerializationError);
+  it("malformed longpoll JSON is skipped: the poll waits and carries on", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = makeFetch([
+        () =>
+          new Response(JSON.stringify({ status: "success", result: "https://x/cb" })),
+        () => new Response("{not json"),
+        () =>
+          new Response(
+            JSON.stringify({
+              result: { radio_id: 1, timestamp: "y", results: [{ artist: "A", title: "T" }] },
+            }),
+          ),
+      ]);
+      const audd = new AudD({ apiToken: "tk", fetch: fetchImpl });
+      const poll = await audd.streams.longpoll("abc");
+      const next = poll.matches[Symbol.asyncIterator]().next();
+      await vi.advanceTimersByTimeAsync(1_000);
+      const r = await next;
+      poll.close();
+      expect(r.value.song.artist).toBe("A");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("non-19 preflight error propagates as-is", async () => {
