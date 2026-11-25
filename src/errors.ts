@@ -14,9 +14,38 @@ export interface AudDApiErrorFields {
 export type AudDApiErrorInit = Partial<AudDApiErrorFields> &
   Pick<AudDApiErrorFields, "errorCode" | "message" | "httpStatus">;
 
+/**
+ * Set on every AudD error. The `@audd/sdk` and `@audd/sdk/longpoll` entry
+ * points, and the ESM and CommonJS builds, each carry their own copy of the
+ * classes below; the mark lets `instanceof` recognise an error whichever
+ * copy created it.
+ */
+const AUDD_ERROR_MARK = Symbol.for("@audd/sdk.error");
+
 /** Base for everything thrown by this SDK. */
 export class AudDError extends Error {
   override name = "AudDError";
+
+  constructor(message?: string) {
+    super(message);
+    Object.defineProperty(this, AUDD_ERROR_MARK, { value: true });
+  }
+
+  /**
+   * `err instanceof AudDQuotaError` is also true for an `AudDQuotaError`
+   * (or a subclass of it) created by another copy of this module. Classes
+   * you derive from these follow the ordinary rules.
+   */
+  static override [Symbol.hasInstance](value: unknown): boolean {
+    if (Function.prototype[Symbol.hasInstance].call(this, value)) return true;
+    if (typeof value !== "object" || value === null) return false;
+    const other = value as { [AUDD_ERROR_MARK]?: unknown; name?: unknown };
+    if (other[AUDD_ERROR_MARK] !== true || typeof other.name !== "string") return false;
+    const cls = Object.prototype.hasOwnProperty.call(CLASS_BY_NAME, other.name)
+      ? CLASS_BY_NAME[other.name]
+      : undefined;
+    return cls !== undefined && (cls === this || Object.prototype.isPrototypeOf.call(this, cls));
+  }
 }
 
 /** Server returned `status: error`. Carries the AudD error code + the full echo. */
@@ -141,6 +170,26 @@ export class AudDSerializationError extends AudDError {
     this.rawText = rawText;
   }
 }
+
+/** The SDK's error classes by `name`, for {@link AudDError}'s `instanceof` check. */
+const CLASS_BY_NAME: Record<string, abstract new (...args: never[]) => AudDError> = {
+  AudDError,
+  AudDAPIError,
+  AudDAuthenticationError,
+  AudDQuotaError,
+  AudDSubscriptionError,
+  AudDCustomCatalogAccessError,
+  AudDInvalidRequestError,
+  AudDInvalidAudioError,
+  AudDRateLimitError,
+  AudDStreamLimitError,
+  AudDNotReleasedError,
+  AudDBlockedError,
+  AudDNeedsUpdateError,
+  AudDServerError,
+  AudDConnectionError,
+  AudDSerializationError,
+};
 
 export type AudDAPIErrorCtor = new (init: AudDApiErrorInit) => AudDAPIError;
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AudDAPIError,
   AudDAuthenticationError,
@@ -193,5 +193,61 @@ describe("errors", () => {
       httpStatus: 200,
     });
     expect(e.message).toBe("[#900] bad token");
+  });
+});
+
+// The package ships these classes more than once: in the main entry, in the
+// longpoll entry, and in the ESM and CommonJS builds of each.
+describe("instanceof across copies of the module", () => {
+  async function secondCopy() {
+    vi.resetModules();
+    return await import("../src/errors.js");
+  }
+
+  it("recognises an error created by another copy, along the same hierarchy", async () => {
+    const other = await secondCopy();
+    expect(other.AudDInvalidRequestError).not.toBe(AudDInvalidRequestError);
+    const e = new other.AudDCustomCatalogAccessError({ errorCode: 904, message: "denied", httpStatus: 200 });
+    expect(e instanceof AudDCustomCatalogAccessError).toBe(true);
+    expect(e instanceof AudDSubscriptionError).toBe(true);
+    expect(e instanceof AudDAPIError).toBe(true);
+    expect(e instanceof AudDError).toBe(true);
+    expect(e instanceof AudDQuotaError).toBe(false);
+    expect(e instanceof AudDConnectionError).toBe(false);
+    const net = new other.AudDConnectionError("net");
+    expect(net instanceof AudDConnectionError).toBe(true);
+    expect(net instanceof AudDAPIError).toBe(false);
+    // And the other way round.
+    const mine = new AudDServerError({ errorCode: 100, message: "x", httpStatus: 500 });
+    expect(mine instanceof other.AudDServerError).toBe(true);
+    expect(mine instanceof other.AudDAPIError).toBe(true);
+    expect(mine instanceof other.AudDInvalidAudioError).toBe(false);
+  });
+
+  it("does not mistake other values for AudD errors", () => {
+    const lookalike = Object.assign(new Error("x"), { name: "AudDQuotaError" });
+    expect(lookalike instanceof AudDQuotaError).toBe(false);
+    expect({ name: "AudDError" } instanceof AudDError).toBe(false);
+    for (const v of [null, undefined, "AudDError", 5]) {
+      expect((v as unknown) instanceof AudDError).toBe(false);
+    }
+  });
+
+  it("classes derived from the SDK's follow the ordinary rules", async () => {
+    class MyError extends AudDAPIError {}
+    const other = await secondCopy();
+    const foreign = new other.AudDAPIError({ errorCode: 1, message: "x", httpStatus: 200 });
+    expect(foreign instanceof MyError).toBe(false);
+    const own = new MyError({ errorCode: 1, message: "x", httpStatus: 200 });
+    expect(own instanceof MyError).toBe(true);
+    expect(own instanceof AudDAPIError).toBe(true);
+    expect(own instanceof AudDError).toBe(true);
+  });
+
+  it("the mark does not show up when an error is serialised or listed", () => {
+    const e = new AudDConnectionError("net");
+    expect(Object.keys(e)).not.toContain("@audd/sdk.error");
+    expect(Object.getOwnPropertySymbols(e).filter((s) => Object.getOwnPropertyDescriptor(e, s)?.enumerable)).toEqual([]);
+    expect(JSON.stringify(e)).toBe(JSON.stringify({ name: "AudDConnectionError" }));
   });
 });

@@ -425,6 +425,11 @@ for await (const m of poll.matches) {
 for await (const err of poll.errors) throw err;
 ```
 
+The sub-entry also exports the error classes (`AudDInvalidRequestError`,
+`AudDConnectionError`, and the rest of the hierarchy under
+[Errors](#errors)), so the page can tell them apart with `instanceof`
+without loading the main module.
+
 ## Custom catalog (advanced — not for music recognition)
 
 > The custom-catalog endpoint is **not** how you submit audio for

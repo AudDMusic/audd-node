@@ -32,6 +32,26 @@ import { defaultPolicy, runRetried, type RetryPolicy } from "./retry.js";
 import { userAgent } from "./userAgent.js";
 
 export type { LongpollPoll } from "./longpollCore.js";
+// The errors a poll can deliver, so a page that loads only this entry can
+// tell them apart with `instanceof`.
+export {
+  AudDError,
+  AudDAPIError,
+  AudDAuthenticationError,
+  AudDBlockedError,
+  AudDConnectionError,
+  AudDCustomCatalogAccessError,
+  AudDInvalidAudioError,
+  AudDInvalidRequestError,
+  AudDNeedsUpdateError,
+  AudDNotReleasedError,
+  AudDQuotaError,
+  AudDRateLimitError,
+  AudDSerializationError,
+  AudDServerError,
+  AudDStreamLimitError,
+  AudDSubscriptionError,
+} from "./errors.js";
 
 const LONGPOLL_URL = "https://api.audd.io/longpoll/";
 
